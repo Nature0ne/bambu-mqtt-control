@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.github/
+.DS_Store
+.env
+.venv/
+tests/
+docs/
+*.sqlite*
+bambu-local-ca.crt

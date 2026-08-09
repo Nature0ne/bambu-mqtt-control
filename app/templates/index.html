@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b1110">
+    <title>Bambu Kontrollzentrum</title>
+    <link rel="stylesheet" href="../static/app.css">
+    <script src="../static/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Zum Inhalt springen</a>
+
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28" role="img">
+            <path d="M5 7.5 14 3l9 4.5v10.8L14 25l-9-6.7Z"/>
+            <path d="m5 7.5 9 5 9-5M14 12.5V25"/>
+          </svg>
+        </span>
+        <div>
+          <p class="eyebrow">Lokales Drucklabor</p>
+          <h1>Bambu Kontrollzentrum</h1>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div id="connection-status" class="connection-pill is-connecting" role="status" aria-live="polite">
+          <span class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-label">Verbindung wird hergestellt</span>
+        </div>
+        <p id="last-update" class="last-update">Noch keine Daten</p>
+      </div>
+    </header>
+
+    <main id="main-content" class="app-main">
+      <section class="overview" aria-labelledby="overview-title">
+        <div>
+          <p class="eyebrow">Übersicht</p>
+          <h2 id="overview-title">Deine Drucker</h2>
+        </div>
+        <dl class="overview-stats" aria-label="Druckerübersicht">
+          <div>
+            <dt>Online</dt>
+            <dd id="online-count">–</dd>
+          </div>
+          <div>
+            <dt>Aktiv</dt>
+            <dd id="active-count">–</dd>
+          </div>
+          <div>
+            <dt>AMS</dt>
+            <dd id="ams-count">–</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div id="global-alert" class="global-alert" role="alert" hidden>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/>
+        </svg>
+        <div>
+          <strong id="global-alert-title">Verbindungsfehler</strong>
+          <p id="global-alert-message"></p>
+        </div>
+        <button id="retry-button" class="button button-small button-ghost" type="button">Erneut versuchen</button>
+      </div>
+
+      <section id="loading-view" class="printer-grid" aria-label="Druckerdaten werden geladen" aria-busy="true">
+        <article class="printer-card skeleton-card" aria-hidden="true">
+          <div class="skeleton skeleton-title"></div>
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-panel"></div>
+        </article>
+        <article class="printer-card skeleton-card" aria-hidden="true">
+          <div class="skeleton skeleton-title"></div>
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-panel"></div>
+        </article>
+      </section>
+
+      <section id="empty-view" class="empty-state" hidden>
+        <span class="empty-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16v12H4zM7 4h10v3M8 12h8m-4-3v6"/></svg>
+        </span>
+        <h2>Keine Drucker eingerichtet</h2>
+        <p>Sobald ein Drucker in der lokalen Konfiguration hinterlegt ist, erscheint er hier.</p>
+      </section>
+
+      <section id="printer-grid" class="printer-grid" aria-label="Bambu-Drucker" aria-live="polite" hidden></section>
+    </main>
+
+    <footer class="app-footer">
+      <span>Nur im lokalen Netzwerk</span>
+      <span aria-hidden="true">·</span>
+      <a href="/health">Systemstatus</a>
+    </footer>
+
+    <dialog id="stop-dialog" class="confirm-dialog" aria-labelledby="stop-dialog-title">
+      <form method="dialog">
+        <div class="dialog-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+        </div>
+        <h2 id="stop-dialog-title">Druck wirklich abbrechen?</h2>
+        <p>Der aktuelle Druckauftrag auf <strong id="stop-printer-name">diesem Drucker</strong> wird unwiderruflich beendet.</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" value="cancel">Zurück</button>
+          <button id="confirm-stop-button" class="button button-danger" value="confirm">Druck abbrechen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="drying-dialog" class="confirm-dialog drying-dialog" aria-labelledby="drying-dialog-title">
+      <form id="drying-form">
+        <header class="drying-dialog-header">
+          <div class="drying-dialog-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M13 3s1 3-1 5-4 3-4 6a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 4 3 4 6a7 7 0 0 1-14 0c0-5 5-6 8-12Z"/></svg>
+          </div>
+          <div>
+            <p class="section-kicker">Filamentpflege</p>
+            <h2 id="drying-dialog-title">Trocknung starten</h2>
+            <p id="drying-dialog-subtitle"></p>
+          </div>
+          <button class="dialog-close-button" id="drying-dialog-close" type="button" aria-label="Dialog schließen">×</button>
+        </header>
+
+        <div class="drying-form-grid">
+          <div class="drying-field temperature-field">
+            <div class="drying-field-heading">
+              <label for="drying-temperature">Temperatur</label>
+              <output id="drying-temperature-output" for="drying-temperature">55 °C</output>
+            </div>
+            <input id="drying-temperature" name="temperature" type="range" min="45" max="65" step="1" value="55">
+            <div class="range-limits" aria-hidden="true"><span id="drying-temperature-min">45 °C</span><span id="drying-temperature-max">65 °C</span></div>
+          </div>
+
+          <div class="drying-field">
+            <label for="drying-duration">Dauer</label>
+            <div class="input-with-unit">
+              <input id="drying-duration" name="duration" type="number" min="1" max="24" step="1" value="6" required inputmode="numeric">
+              <span>Stunden</span>
+            </div>
+            <small>Zwischen 1 und 24 Stunden.</small>
+          </div>
+
+          <div class="drying-field drying-filament-field">
+            <label for="drying-filament">Material <span class="optional">Optional</span></label>
+            <select id="drying-filament" name="filament">
+              <option value="">Keine Materialangabe</option>
+              <option value="PLA">PLA</option>
+              <option value="PETG">PETG</option>
+              <option value="TPU">TPU</option>
+              <option value="ABS">ABS</option>
+              <option value="ASA">ASA</option>
+              <option value="PA">PA / Nylon</option>
+              <option value="PC">PC</option>
+              <option value="PVA">PVA</option>
+              <option value="PA-CF">PA-CF</option>
+              <option value="PET-CF">PET-CF</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="drying-toggle-card">
+          <span>
+            <strong>Spule währenddessen drehen</strong>
+            <small>Standardmäßig aus. Die Rotation bewegt Spule und Filament im AMS.</small>
+          </span>
+          <input id="drying-rotate" name="rotate_tray" type="checkbox" role="switch">
+          <span class="switch-control" aria-hidden="true"></span>
+        </label>
+
+        <div class="drying-warning" role="note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+          <p>Das AMS wird heiß. Prüfe Material und Temperatur sorgfältig, halte Lüftungsöffnungen frei und öffne das Gerät nicht während der Trocknung.</p>
+        </div>
+
+        <label id="drying-experimental-field" class="experimental-confirmation" hidden>
+          <input id="drying-experimental-ack" type="checkbox">
+          <span>
+            <strong>Experimentelle X1-Funktion ausdrücklich bestätigen</strong>
+            <small>Diese lokale MQTT-Steuerung ist auf X1/X1C nicht offiziell stabil dokumentiert. Ich verstehe, dass der Drucker den Befehl ablehnen oder anders ausführen kann.</small>
+          </span>
+        </label>
+
+        <p id="drying-form-error" class="drying-form-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="cancel-drying-button" class="button button-secondary" type="button">Abbrechen</button>
+          <button class="button drying-start-submit" type="submit">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3s1 3-1 5-4 3-4 6a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 4 3 4 6a7 7 0 0 1-14 0c0-5 5-6 8-12Z"/></svg>
+            Trocknung starten
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="stop-drying-dialog" class="confirm-dialog" aria-labelledby="stop-drying-dialog-title">
+      <form method="dialog">
+        <div class="dialog-icon drying-stop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M13 3s1 3-1 5-4 3-4 6a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 4 3 4 6a7 7 0 0 1-14 0c0-5 5-6 8-12Z"/><path d="m7 7 10 10"/></svg>
+        </div>
+        <h2 id="stop-drying-dialog-title">Trocknung beenden?</h2>
+        <p id="stop-drying-dialog-message">Der Stopp-Befehl wird an das AMS gesendet.</p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" value="cancel">Weiter trocknen</button>
+          <button id="confirm-stop-drying-button" class="button button-danger" value="confirm">Trocknung stoppen</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+    <template id="printer-template">
+      <article class="printer-card">
+        <header class="printer-header">
+          <div class="printer-identity">
+            <span class="printer-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 8V3h12v5M5 12h14v9H5zM8 15h8m-4-3v6M3 8h18v5h-2M5 13H3V8"/></svg>
+            </span>
+            <div>
+              <div class="printer-title-row">
+                <h2 class="printer-name"></h2>
+                <span class="status-badge"></span>
+              </div>
+              <p class="printer-meta"></p>
+            </div>
+          </div>
+          <p class="printer-freshness"></p>
+        </header>
+
+        <div class="printer-notice" hidden>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+          <p class="printer-notice-text"></p>
+        </div>
+
+        <div class="printer-body">
+          <section class="job-panel" aria-label="Aktueller Druckauftrag">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Aktueller Auftrag</p>
+                <h3 class="job-name"></h3>
+              </div>
+              <span class="job-state"></span>
+            </div>
+
+            <div class="job-progress-layout">
+              <div class="progress-ring" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-ring-inner">
+                  <strong class="progress-value"></strong>
+                  <span>Fortschritt</span>
+                </div>
+              </div>
+              <dl class="job-facts">
+                <div>
+                  <dt>Restzeit</dt>
+                  <dd class="remaining-time"></dd>
+                </div>
+                <div>
+                  <dt>Layer</dt>
+                  <dd class="layer-count"></dd>
+                </div>
+                <div>
+                  <dt>Geschwindigkeit</dt>
+                  <dd class="speed-level"></dd>
+                </div>
+              </dl>
+            </div>
+          </section>
+
+          <section class="telemetry-panel" aria-label="Temperaturen und Lüfter">
+            <div class="section-heading">
+              <div>
+                <p class="section-kicker">Live-Werte</p>
+                <h3>Temperaturen</h3>
+              </div>
+            </div>
+            <div class="temperature-grid">
+              <div class="temperature-item">
+                <span class="temperature-icon nozzle" aria-hidden="true"></span>
+                <span>Düse</span>
+                <strong class="temp-nozzle"></strong>
+                <small class="target-nozzle"></small>
+              </div>
+              <div class="temperature-item">
+                <span class="temperature-icon bed" aria-hidden="true"></span>
+                <span>Bett</span>
+                <strong class="temp-bed"></strong>
+                <small class="target-bed"></small>
+              </div>
+              <div class="temperature-item">
+                <span class="temperature-icon chamber" aria-hidden="true"></span>
+                <span>Kammer</span>
+                <strong class="temp-chamber"></strong>
+                <small class="target-chamber"></small>
+              </div>
+            </div>
+            <div class="fan-row" aria-label="Lüftergeschwindigkeiten">
+              <span class="fan-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 12c-1-5 1-8 4-8 2.5 0 2.7 4.4-1.2 7M12 12c5-1 8 1 8 4 0 2.5-4.4 2.7-7-1.2M12 12c1 5-1 8-4 8-2.5 0-2.7-4.4 1.2-7M12 12c-5 1-8-1-8-4 0-2.5 4.4-2.7 7 1.2"/><circle cx="12" cy="12" r="1.6"/></svg>
+              </span>
+              <span>Bauteil <strong class="fan-part"></strong></span>
+              <span>Aux <strong class="fan-aux"></strong></span>
+              <span>Kammer <strong class="fan-chamber"></strong></span>
+            </div>
+          </section>
+        </div>
+
+        <section class="camera-panel" aria-label="Kamera-Livebild">
+          <div class="section-heading camera-heading">
+            <div>
+              <p class="section-kicker">Lokale Kamera</p>
+              <h3>Livebild</h3>
+            </div>
+            <span class="camera-state-badge" role="status" aria-live="polite" aria-atomic="true">Wird geprüft</span>
+          </div>
+          <div class="camera-layout">
+            <div class="camera-viewport">
+              <img class="camera-image" alt="" decoding="async" referrerpolicy="no-referrer" hidden>
+              <div class="camera-placeholder" role="status" aria-live="polite">
+                <span class="camera-placeholder-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="M4 7h11a2 2 0 0 1 2 2v8H4zM17 11l4-2v7l-4-2M8 11h5"/></svg>
+                </span>
+                <strong class="camera-placeholder-title">Kamera wird geprüft</strong>
+                <p class="camera-placeholder-message">Die lokale Verfügbarkeit wird geladen.</p>
+              </div>
+              <span class="camera-live-indicator" hidden><span aria-hidden="true"></span>Live</span>
+            </div>
+            <div class="camera-sidebar">
+              <div>
+                <strong class="camera-sidebar-title">Livebild nur bei Bedarf</strong>
+                <p class="camera-sidebar-message">Der Stream startet erst nach einem Klick und bleibt in dieser Browser-Sitzung.</p>
+              </div>
+              <div class="camera-actions">
+                <button class="button camera-start-button" type="button" data-camera-action="start">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>
+                  <span>Kamera starten</span>
+                </button>
+                <button class="button button-secondary camera-stop-button" type="button" data-camera-action="stop" hidden>
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                  Livebild stoppen
+                </button>
+              </div>
+              <p class="camera-privacy-note">Der Browser erhält keine Drucker-Zugangsdaten. Das Bild wird lokal über diesen Server vermittelt.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="controls-panel" aria-label="Druckersteuerung">
+          <div class="section-heading controls-heading">
+            <div>
+              <p class="section-kicker">Steuerung</p>
+              <h3>Drucker</h3>
+            </div>
+            <span class="readonly-badge" hidden>Nur lesen</span>
+          </div>
+          <div class="control-grid">
+            <button class="button control-button" type="button" data-command="pause">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+              Pause
+            </button>
+            <button class="button control-button" type="button" data-command="resume">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>
+              Fortsetzen
+            </button>
+            <button class="button button-danger-subtle control-button" type="button" data-command="stop">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+              Abbrechen
+            </button>
+          </div>
+        </section>
+
+        <section class="additional-controls-panel" aria-label="Weitere Steuerungen" hidden>
+          <div class="section-heading controls-heading">
+            <div>
+              <p class="section-kicker">Optional</p>
+              <h3>Weitere Steuerungen</h3>
+            </div>
+            <span class="capability-badge">Nach Gerätefunktion</span>
+          </div>
+          <p class="additional-controls-intro">Hier erscheinen ausschließlich Funktionen, die dieser Drucker tatsächlich meldet und die lokal freigegeben sind.</p>
+          <div class="additional-control-grid">
+            <button class="button control-button light-button" type="button" data-command="light">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6m-5 3h4m3-9a5 5 0 1 0-8.5 3.6c.9.8 1.5 1.3 1.5 2.4h4c0-1.1.6-1.6 1.5-2.4A4.9 4.9 0 0 0 17 12Z"/></svg>
+              <span class="light-label">Licht</span>
+            </button>
+            <label class="speed-control">
+              <span>Tempo</span>
+              <select class="speed-select" data-command="speed">
+                <option value="silent">Silent</option>
+                <option value="standard">Standard</option>
+                <option value="sport">Sport</option>
+                <option value="ludicrous">Ludicrous</option>
+              </select>
+            </label>
+            <button class="button control-button camera-recording-button" type="button" data-command="camera_recording">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg>
+              <span class="camera-recording-label">Aufnahme starten</span>
+            </button>
+            <button class="button control-button camera-timelapse-button" type="button" data-command="camera_timelapse">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7"/><path d="M12 9v4l3 2M9 3h6"/></svg>
+              <span class="camera-timelapse-label">Zeitraffer aktivieren</span>
+            </button>
+            <label class="speed-control camera-resolution-control">
+              <span>Auflösung</span>
+              <select class="camera-resolution-select" data-command="camera_resolution" aria-label="Kamera-Auflösung"></select>
+            </label>
+          </div>
+        </section>
+
+        <section class="ams-section" aria-label="AMS-Systeme">
+          <div class="section-heading">
+            <div>
+              <p class="section-kicker">Materialsystem</p>
+              <h3>AMS</h3>
+            </div>
+            <span class="ams-count-badge"></span>
+          </div>
+          <div class="ams-list"></div>
+          <p class="no-ams" hidden>Kein AMS verbunden.</p>
+        </section>
+      </article>
+    </template>
+
+    <template id="ams-template">
+      <article class="ams-card">
+        <header class="ams-header">
+          <div>
+            <div class="ams-title-row">
+              <h4 class="ams-name"></h4>
+              <span class="ams-model-badge" hidden></span>
+              <span class="ams-experimental-badge" hidden>Experimentell</span>
+              <span class="ams-active-badge" hidden>Aktiv</span>
+            </div>
+            <p class="ams-environment"></p>
+          </div>
+          <div class="ams-actions">
+            <button class="icon-button" type="button" data-command="refresh_rfid" title="RFID neu einlesen" aria-label="RFID neu einlesen">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.5a7 7 0 0 1 11.6-2.2L20 8M4 16l2.3 1.7a7 7 0 0 0 11.6-2.2"/></svg>
+            </button>
+          </div>
+        </header>
+        <section class="drying-panel" aria-label="Filamenttrocknung" hidden>
+          <div class="drying-panel-heading">
+            <div class="drying-title">
+              <span class="drying-symbol" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M13 3s1 3-1 5-4 3-4 6a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 4 3 4 6a7 7 0 0 1-14 0c0-5 5-6 8-12Z"/></svg>
+              </span>
+              <div>
+                <strong>Filament trocknen</strong>
+                <small class="drying-model-note"></small>
+              </div>
+            </div>
+            <span class="drying-state-badge"></span>
+          </div>
+
+          <div class="drying-active-view" hidden>
+            <dl class="drying-stats">
+              <div><dt>Restzeit</dt><dd class="drying-remaining"></dd></div>
+              <div><dt>Ziel</dt><dd class="drying-temperature"></dd></div>
+              <div><dt>Dauer</dt><dd class="drying-duration"></dd></div>
+            </dl>
+            <p class="drying-filament"></p>
+          </div>
+
+          <div class="drying-idle-view" hidden>
+            <p class="drying-description">Feuchtigkeit schonend aus der eingelegten Filamentspule entfernen.</p>
+            <button class="button drying-start-button" type="button" data-dry-action="start">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3s1 3-1 5-4 3-4 6a4 4 0 0 0 8 0c0-2-1-3-1-5 2 1 4 3 4 6a7 7 0 0 1-14 0c0-5 5-6 8-12Z"/></svg>
+              Trocknung einrichten
+            </button>
+          </div>
+          <div class="drying-stop-row">
+            <p class="drying-stop-help"></p>
+            <button class="button button-danger-subtle drying-stop-button" type="button" data-dry-action="stop">Sicherheits-Stopp senden</button>
+          </div>
+          <p class="drying-availability-note" hidden></p>
+          <p class="drying-experimental-note" hidden>Auf diesem X1-Drucker ist die Trocknungssteuerung experimentell und erfordert vor jedem Start eine ausdrückliche Bestätigung.</p>
+        </section>
+        <div class="slot-grid"></div>
+      </article>
+    </template>
+
+    <template id="slot-template">
+      <article class="slot-card">
+        <div class="slot-color" aria-hidden="true"></div>
+        <div class="slot-content">
+          <div class="slot-heading">
+            <span class="slot-number"></span>
+            <span class="slot-active-badge" hidden>Wird verwendet</span>
+          </div>
+          <strong class="slot-material"></strong>
+          <span class="slot-brand"></span>
+          <div class="remaining-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <span class="remaining-fill"></span>
+          </div>
+          <div class="slot-footer">
+            <span class="slot-remaining"></span>
+            <span class="slot-rfid"></span>
+          </div>
+        </div>
+      </article>
+    </template>
+  </body>
+</html>

@@ -1,0 +1,46 @@
+# Optional manual configuration. The recommended path is the browser onboarding.
+# Keep real passwords and access codes in separate files inside /config.
+
+audit_db: /var/lib/bambu-control/audit.sqlite3
+
+web:
+  username: admin
+  password_file: /config/bambu-web-password
+  allowed_origins:
+    - https://localhost:9444
+
+printers:
+  - id: workshop
+    name: Bambu Printer
+    model: X1C
+    host: 192.168.1.50
+    port: 8883
+    serial: YOUR_PRINTER_SERIAL
+    access_code_file: /config/bambu-workshop-access-code
+
+    tls_ca_file: /app/certs/bambu-lab-ca.pem
+    allow_self_signed_tls: false
+    # Optional additional certificate-change detection:
+    # tls_fingerprint_sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+    # Start read-only. Enable writes only after status monitoring is verified.
+    writable: false
+    # X1-family camera streaming is an independent, privacy-sensitive opt-in.
+    camera_enabled: false
+    allowed_commands:
+      - pause
+      - resume
+      - stop
+      - speed
+      - light
+      - refresh_rfid
+      # Drying is supported only for a positively identified AMS 2 Pro/AMS HT.
+      # Enabling start_drying always also requires stop_drying.
+      # - start_drying
+      # - stop_drying
+      # Camera write controls are independent of camera live view.
+      # - camera_recording
+      # - camera_timelapse
+      # - camera_resolution
+    stale_after_seconds: 90
+    full_refresh_seconds: 300

@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem without including credentials.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste LAN access codes, passwords, camera URLs, or raw MQTT payloads.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Printer and AMS model
+      placeholder: X1C with AMS 2 Pro
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove all credentials, serial numbers, IP addresses, URLs containing credentials, and raw payloads.

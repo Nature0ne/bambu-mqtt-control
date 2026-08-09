@@ -1,0 +1,17 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+
+https://{$BAMBU_SITE_HOST:localhost}:{$BAMBU_HTTPS_PORT:9444} {
+	tls internal
+
+	@metrics path /metrics
+	respond @metrics 404
+
+	reverse_proxy bambu-control:9208 {
+		health_uri /healthz
+		health_interval 30s
+		health_timeout 3s
+	}
+}

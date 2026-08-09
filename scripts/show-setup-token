@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+docker compose exec -T bambu-control python3 -c '
+import os
+import stat
+
+path = "/config/bootstrap-token"
+flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+try:
+    descriptor = os.open(path, flags)
+except FileNotFoundError:
+    raise SystemExit("No setup token found. Setup may already be complete.")
+try:
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 4096:
+        raise SystemExit("Refusing to read an unsafe setup-token entry.")
+    value = os.read(descriptor, 4097).decode("ascii").strip()
+finally:
+    os.close(descriptor)
+if not 32 <= len(value) <= 256 or not value.replace("-", "").replace("_", "").isalnum():
+    raise SystemExit("Setup token is malformed.")
+print(value)
+'

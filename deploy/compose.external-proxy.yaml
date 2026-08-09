@@ -1,0 +1,4 @@
+services:
+  bambu-control:
+    ports:
+      - "${BAMBU_APP_BIND_ADDRESS:-127.0.0.1}:${BAMBU_APP_PORT:-9208}:9208"

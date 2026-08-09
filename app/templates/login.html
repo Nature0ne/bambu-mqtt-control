@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#09100f">
+    <title>Anmelden · Bambu Kontrollzentrum</title>
+    <link rel="stylesheet" href="/static/login.css">
+    <script src="/static/login.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#login-content">Zum Inhalt springen</a>
+
+    <header class="login-header">
+      <a class="brand" href="/login" aria-label="Bambu Kontrollzentrum – Anmeldung">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28">
+            <path d="M5 7.5 14 3l9 4.5v10.8L14 25l-9-6.7Z"/>
+            <path d="m5 7.5 9 5 9-5M14 12.5V25"/>
+          </svg>
+        </span>
+        <span>
+          <span class="eyebrow">Lokales Drucklabor</span>
+          <strong>Bambu Kontrollzentrum</strong>
+        </span>
+      </a>
+      <span class="local-badge">
+        <span class="local-dot" aria-hidden="true"></span>
+        Lokal verbunden
+      </span>
+    </header>
+
+    <main id="login-content" class="login-main">
+      <section class="login-card" aria-labelledby="login-title">
+        <div class="login-intro">
+          <span class="login-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M7 10V7a5 5 0 0 1 10 0v3"/><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M12 14v3"/></svg>
+          </span>
+          <p class="eyebrow">Geschützter Zugang</p>
+          <h1 id="login-title">Willkommen zurück.</h1>
+          <p>Melde dich mit dem Webkonto an, das du bei der Einrichtung festgelegt hast.</p>
+        </div>
+
+        <div id="setup-notice" class="setup-notice" role="status" tabindex="-1" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 12.5 3.5 3.5 7.5-8"/><circle cx="12" cy="12" r="9"/></svg>
+          <div>
+            <strong>Einrichtung abgeschlossen</strong>
+            <p>Dein Kontrollzentrum ist bereit. Melde dich jetzt mit deinem neuen Webkonto an.</p>
+          </div>
+        </div>
+
+        <div id="expired-notice" class="expired-notice" role="status" tabindex="-1" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+          <div>
+            <strong>Sitzung abgelaufen</strong>
+            <p>Deine Anmeldung ist aus Sicherheitsgründen nicht mehr gültig. Melde dich bitte erneut an.</p>
+          </div>
+        </div>
+
+        <div id="login-alert" class="login-alert" role="alert" tabindex="-1" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+          <div>
+            <strong id="login-alert-title">Anmeldung nicht möglich</strong>
+            <p id="login-alert-message"></p>
+          </div>
+        </div>
+
+        <noscript>
+          <div class="login-alert">
+            <strong>JavaScript wird benötigt.</strong>
+            <p>Aktiviere JavaScript für diese lokale Seite und lade sie anschließend neu.</p>
+          </div>
+        </noscript>
+
+        <form id="login-form" novalidate>
+          <div class="field-group">
+            <label for="login-username">Web-Benutzer</label>
+            <input id="login-username" name="username" type="text" required maxlength="128" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus>
+          </div>
+
+          <div class="field-group">
+            <label for="login-password">Passwort</label>
+            <div class="secret-field">
+              <input id="login-password" name="password" type="password" required maxlength="1024" autocomplete="current-password">
+              <button id="toggle-password" class="reveal-button" type="button" aria-controls="login-password" aria-pressed="false">Anzeigen</button>
+            </div>
+          </div>
+
+          <button id="login-button" class="login-button" type="submit">
+            <span class="button-label">Anmelden</span>
+            <span class="button-spinner" aria-hidden="true"></span>
+            <svg class="button-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+          </button>
+        </form>
+
+        <p class="security-note">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 2.7 8.1 7 10 4.3-1.9 7-5.5 7-10V6Z"/><path d="m9.3 12 1.8 1.8 3.8-4"/></svg>
+          Deine Zugangsdaten werden nur verschlüsselt an diesen lokalen Dienst übertragen.
+        </p>
+      </section>
+    </main>
+
+    <footer class="login-footer">
+      <span>Bambu Kontrollzentrum</span>
+      <span aria-hidden="true">·</span>
+      <span>Lokale MQTT-Verbindung</span>
+    </footer>
+  </body>
+</html>

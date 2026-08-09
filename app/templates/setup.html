@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#09100f">
+    <title>Einrichtung · Bambu Kontrollzentrum</title>
+    <link rel="stylesheet" href="/static/setup.css">
+    <script src="/static/setup.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#setup-content">Zum Inhalt springen</a>
+
+    <header class="setup-header">
+      <a class="brand" href="/setup" aria-label="Bambu Kontrollzentrum – Einrichtung">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 28 28">
+            <path d="M5 7.5 14 3l9 4.5v10.8L14 25l-9-6.7Z"/>
+            <path d="m5 7.5 9 5 9-5M14 12.5V25"/>
+          </svg>
+        </span>
+        <span>
+          <span class="eyebrow">Lokales Drucklabor</span>
+          <strong>Bambu Kontrollzentrum</strong>
+        </span>
+      </a>
+      <span class="local-badge">
+        <span class="local-dot" aria-hidden="true"></span>
+        Einrichtung im lokalen Netz
+      </span>
+    </header>
+
+    <main id="setup-content" class="setup-layout">
+      <aside class="setup-sidebar" aria-label="Fortschritt der Einrichtung">
+        <div class="sidebar-intro">
+          <p class="eyebrow">Ersteinrichtung</p>
+          <h1>In wenigen Minuten startklar.</h1>
+          <p>Zugang absichern, Drucker hinzufügen und die Konfiguration einmal prüfen.</p>
+        </div>
+
+        <ol class="step-list">
+          <li class="step-item is-current" data-step-indicator="1" aria-current="step">
+            <span class="step-number" aria-hidden="true">1</span>
+            <span>
+              <strong>Zugang</strong>
+              <small>Webkonto und Bootstrap-Code</small>
+            </span>
+          </li>
+          <li class="step-item" data-step-indicator="2">
+            <span class="step-number" aria-hidden="true">2</span>
+            <span>
+              <strong>Drucker</strong>
+              <small>MQTT, TLS und Berechtigungen</small>
+            </span>
+          </li>
+          <li class="step-item" data-step-indicator="3">
+            <span class="step-number" aria-hidden="true">3</span>
+            <span>
+              <strong>Prüfen</strong>
+              <small>Zusammenfassung und Speichern</small>
+            </span>
+          </li>
+        </ol>
+
+        <div class="sidebar-security">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 2.7 8.1 7 10 4.3-1.9 7-5.5 7-10V6Z"/><path d="m9.3 12 1.8 1.8 3.8-4"/></svg>
+          <p><strong>Deine Zugangsdaten bleiben lokal.</strong> Sie werden verschlüsselt an diesen Dienst übertragen und nicht an externe Dienste gesendet.</p>
+        </div>
+      </aside>
+
+      <section class="setup-panel" aria-labelledby="setup-title">
+        <div class="mobile-progress" aria-hidden="true">
+          <span class="mobile-progress-bar"><span id="mobile-progress-value" class="mobile-progress-value step-1"></span></span>
+          <span id="mobile-step-label">Schritt 1 von 3</span>
+        </div>
+
+        <div id="setup-alert" class="setup-alert" role="alert" tabindex="-1" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+          <div>
+            <strong id="setup-alert-title">Einrichtung nicht möglich</strong>
+            <p id="setup-alert-message"></p>
+          </div>
+        </div>
+
+        <noscript>
+          <div class="setup-alert">
+            <strong>JavaScript wird benötigt.</strong>
+            <p>Aktiviere JavaScript für diese lokale Seite und lade sie anschließend neu.</p>
+          </div>
+        </noscript>
+
+        <form id="setup-form" novalidate>
+          <section class="setup-step" data-step="1" aria-labelledby="setup-title">
+            <div class="step-heading">
+              <p class="eyebrow">Schritt 1 · Zugang</p>
+              <h2 id="setup-title" tabindex="-1">Schütze dein Kontrollzentrum.</h2>
+              <p>Der Bootstrap-Code autorisiert diese einmalige Einrichtung. Danach meldest du dich mit deinem neuen Webkonto an.</p>
+            </div>
+
+            <div class="info-card">
+              <span class="info-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 8v.01M12 11v5"/><circle cx="12" cy="12" r="9"/></svg>
+              </span>
+              <div>
+                <strong>Wo finde ich den Bootstrap-Code?</strong>
+                <p>Er wird beim ersten Start des Dienstes im Terminal beziehungsweise im Installationsprotokoll angezeigt. Der Code ist nur für die Ersteinrichtung bestimmt.</p>
+              </div>
+            </div>
+
+            <div class="field-stack">
+              <div class="field-group field-wide">
+                <label for="bootstrap-token">Bootstrap-Code</label>
+                <div class="password-field">
+                  <input id="bootstrap-token" name="bootstrap_token" type="password" autocomplete="one-time-code" required minlength="8" maxlength="256" spellcheck="false" aria-describedby="bootstrap-help">
+                  <button class="reveal-button" type="button" data-password-toggle="bootstrap-token" aria-label="Bootstrap-Code anzeigen" aria-pressed="false">Anzeigen</button>
+                </div>
+                <p id="bootstrap-help" class="field-help">Groß- und Kleinschreibung werden berücksichtigt.</p>
+              </div>
+
+              <div class="field-divider" role="presentation"></div>
+
+              <div class="field-grid two-columns">
+                <div class="field-group">
+                  <label for="web-username">Web-Benutzer</label>
+                  <input id="web-username" name="web_username" type="text" autocomplete="username" value="admin" required maxlength="128" pattern="[^:]+" aria-describedby="username-help">
+                  <p id="username-help" class="field-help">Der Name für die spätere Anmeldung.</p>
+                </div>
+                <div class="field-spacer" aria-hidden="true"></div>
+                <div class="field-group">
+                  <label for="web-password">Passwort</label>
+                  <div class="password-field">
+                    <input id="web-password" name="web_password" type="password" autocomplete="new-password" required minlength="12" maxlength="256" aria-describedby="password-help">
+                    <button class="reveal-button" type="button" data-password-toggle="web-password" aria-label="Passwort anzeigen" aria-pressed="false">Anzeigen</button>
+                  </div>
+                  <div id="password-help" class="password-quality" aria-live="polite">
+                    <span class="quality-track" aria-hidden="true"><span id="quality-value"></span></span>
+                    <span id="quality-label">Mindestens 12 Zeichen</span>
+                  </div>
+                </div>
+                <div class="field-group">
+                  <label for="web-password-confirm">Passwort bestätigen</label>
+                  <div class="password-field">
+                    <input id="web-password-confirm" name="web_password_confirm" type="password" autocomplete="new-password" required minlength="12" maxlength="256">
+                    <button class="reveal-button" type="button" data-password-toggle="web-password-confirm" aria-label="Passwortbestätigung anzeigen" aria-pressed="false">Anzeigen</button>
+                  </div>
+                  <p id="password-match" class="field-help" aria-live="polite">Beide Eingaben müssen übereinstimmen.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="step-actions align-end">
+              <button class="button button-primary" type="button" data-next-step>
+                Weiter zu den Druckern
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+          </section>
+
+          <section class="setup-step" data-step="2" aria-labelledby="printer-step-title" hidden>
+            <div class="step-heading heading-with-action">
+              <div>
+                <p class="eyebrow">Schritt 2 · Drucker</p>
+                <h2 id="printer-step-title" tabindex="-1">Verbinde deine Bambu-Drucker.</h2>
+                <p>Die Verbindung läuft direkt über MQTT im lokalen Netz. Ein angeschlossenes AMS und externe Spulen werden anschließend automatisch erkannt.</p>
+              </div>
+              <button id="add-printer-button" class="button button-secondary button-compact" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                Drucker hinzufügen
+              </button>
+            </div>
+
+            <div class="ams-note">
+              <span aria-hidden="true">AMS</span>
+              <p><strong>Keine separate AMS-Konfiguration nötig.</strong> Alle verbundenen AMS-Einheiten, Slots und Materialien erscheinen automatisch, sobald der Drucker Statusdaten liefert.</p>
+            </div>
+
+            <div id="printer-list" class="printer-list" aria-live="polite"></div>
+
+            <div class="step-actions">
+              <button class="button button-secondary" type="button" data-previous-step>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+                Zurück
+              </button>
+              <button class="button button-primary" type="button" data-next-step>
+                Konfiguration prüfen
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+          </section>
+
+          <section class="setup-step" data-step="3" aria-labelledby="review-step-title" hidden>
+            <div class="step-heading">
+              <p class="eyebrow">Schritt 3 · Prüfen</p>
+              <h2 id="review-step-title" tabindex="-1">Bereit für den ersten Status.</h2>
+              <p>Prüfe die nicht geheimen Angaben. Passwörter, LAN-Codes und der Bootstrap-Code werden aus Sicherheitsgründen nicht noch einmal angezeigt.</p>
+            </div>
+
+            <div id="review-content" class="review-content"></div>
+
+            <div class="final-note">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 2.7 8.1 7 10 4.3-1.9 7-5.5 7-10V6Z"/><path d="m9.3 12 1.8 1.8 3.8-4"/></svg>
+              <div>
+                <strong>Sicherer Start</strong>
+                <p>Neue Drucker beginnen standardmäßig im Nur-Lesen-Modus. Änderungen werden erst aktiv, wenn du Schreibzugriff ausdrücklich aktiviert hast.</p>
+              </div>
+            </div>
+
+            <div class="step-actions">
+              <button class="button button-secondary" type="button" data-previous-step>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+                Zurück
+              </button>
+              <button id="submit-setup" class="button button-primary" type="submit">
+                <span class="button-label">Einrichtung abschließen</span>
+                <span class="button-spinner" aria-hidden="true"></span>
+                <svg class="button-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+          </section>
+        </form>
+
+        <section id="success-view" class="success-view" tabindex="-1" aria-labelledby="success-title" hidden>
+          <span class="success-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg>
+          </span>
+          <p class="eyebrow">Einrichtung abgeschlossen</p>
+          <h2 id="success-title">Dein Kontrollzentrum ist bereit.</h2>
+          <p>Die Konfiguration wurde lokal gespeichert. Beim Öffnen des Kontrollzentrums meldest du dich mit deinem neuen Web-Benutzer und Passwort an.</p>
+          <a id="open-dashboard" class="button button-primary" href="/login?setup=1">
+            Jetzt anmelden
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+          </a>
+          <small id="redirect-note">Du wirst in 5 Sekunden weitergeleitet.</small>
+        </section>
+      </section>
+    </main>
+
+    <footer class="setup-footer">
+      <span>Bambu Kontrollzentrum</span>
+      <span aria-hidden="true">·</span>
+      <span>Lokale MQTT-Verbindung</span>
+    </footer>
+
+    <template id="printer-form-template">
+      <article class="printer-form-card">
+        <header class="printer-card-header">
+          <div class="printer-card-title">
+            <span class="printer-number" aria-hidden="true"></span>
+            <div>
+              <p class="section-kicker">Bambu-Drucker</p>
+              <h3 class="printer-card-name">Neuer Drucker</h3>
+            </div>
+          </div>
+          <button class="icon-button remove-printer" type="button" aria-label="Drucker entfernen" title="Drucker entfernen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4h6v3m2 0-1 13H8L7 7m3 4v5m4-5v5"/></svg>
+          </button>
+        </header>
+
+        <div class="printer-card-body">
+          <fieldset>
+            <legend>Identität</legend>
+            <div class="field-grid two-columns">
+              <div class="field-group">
+                <label data-for="name">Anzeigename</label>
+                <input data-field="name" type="text" required maxlength="80" placeholder="z. B. Werkstattdrucker" autocomplete="off">
+              </div>
+              <div class="field-group">
+                <label data-for="id">Interne ID</label>
+                <input data-field="id" type="text" required minlength="1" maxlength="32" pattern="[a-z0-9][a-z0-9_-]{0,31}" spellcheck="false" autocomplete="off" aria-describedby="printer-id-help">
+                <p class="field-help printer-id-help">Kleinbuchstaben, Zahlen, <code>_</code> oder <code>-</code>.</p>
+              </div>
+              <div class="field-group">
+                <label data-for="model">Modell</label>
+                <input data-field="model" type="text" required maxlength="80" placeholder="z. B. P1S, X1C oder A1" list="bambu-models" autocomplete="off">
+              </div>
+              <div class="field-group">
+                <label data-for="serial">Seriennummer</label>
+                <input data-field="serial" type="text" required minlength="4" maxlength="64" pattern="[A-Za-z0-9_-]{4,64}" spellcheck="false" autocomplete="off" placeholder="01P00A…">
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>MQTT-Verbindung</legend>
+            <div class="field-grid connection-grid">
+              <div class="field-group">
+                <label data-for="host">IP-Adresse oder Hostname</label>
+                <input data-field="host" type="text" required maxlength="253" pattern="\S+" inputmode="url" spellcheck="false" autocomplete="off" placeholder="192.168.1.50">
+              </div>
+              <div class="field-group field-port">
+                <label data-for="port">Port</label>
+                <input data-field="port" type="number" required min="1" max="65535" step="1" inputmode="numeric" value="8883">
+              </div>
+              <div class="field-group">
+                <label data-for="access_code">LAN-Code</label>
+                <div class="password-field">
+                  <input data-field="access_code" type="password" required minlength="1" maxlength="128" autocomplete="new-password" spellcheck="false" aria-describedby="lan-code-help">
+                  <button class="reveal-button" type="button" data-card-password-toggle="access_code" aria-label="LAN-Code anzeigen" aria-pressed="false">Anzeigen</button>
+                </div>
+                <p class="field-help lan-code-help">Am Drucker unter Netzwerk → LAN-Only-Modus.</p>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Lokale Kamera</legend>
+            <label class="toggle-card camera-toggle-card">
+              <span>
+                <strong>Livebild auf dieser Website freigeben</strong>
+                <small>Nur für unterstützte X1-Modelle; startet niemals automatisch.</small>
+              </span>
+              <input data-field="camera_enabled" type="checkbox" role="switch" data-camera-enabled aria-describedby="camera-permission-note">
+              <span class="switch-control" aria-hidden="true"></span>
+            </label>
+            <div class="camera-setup-info">
+              <strong>Separates Kamera-Opt-in</strong>
+              <p id="camera-permission-note" class="camera-setup-note">Wähle ein X1-Modell, um das lokale Livebild freizugeben. Der Stream wird vom Server vermittelt; Zugangsdaten erreichen den Browser nicht.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Zugriff</legend>
+            <label class="toggle-card">
+              <span>
+                <strong>Schreibzugriff aktivieren</strong>
+                <small>Ohne Aktivierung werden ausschließlich Live-Daten gelesen.</small>
+              </span>
+              <input data-field="writable" type="checkbox" role="switch" aria-describedby="write-warning">
+              <span class="switch-control" aria-hidden="true"></span>
+            </label>
+
+            <div class="permission-panel" hidden>
+              <div class="permission-heading">
+                <div>
+                  <strong>Erlaubte Aktionen</strong>
+                  <p>Wähle nur Funktionen, die diese Website ausführen darf.</p>
+                </div>
+                <span class="write-badge">Schreibzugriff</span>
+              </div>
+              <div class="command-grid">
+                <label class="check-card"><input type="checkbox" data-command="pause" checked><span><strong>Pause</strong><small>Druck pausieren</small></span></label>
+                <label class="check-card"><input type="checkbox" data-command="resume" checked><span><strong>Fortsetzen</strong><small>Druck weiterführen</small></span></label>
+                <label class="check-card danger-command"><input type="checkbox" data-command="stop" checked><span><strong>Abbrechen</strong><small>Druck endgültig stoppen</small></span></label>
+                <label class="check-card"><input type="checkbox" data-command="speed" checked><span><strong>Tempo</strong><small>Geschwindigkeit ändern</small></span></label>
+                <label class="check-card"><input type="checkbox" data-command="light" checked><span><strong>Licht</strong><small>Kammerlicht schalten</small></span></label>
+                <label class="check-card"><input type="checkbox" data-command="refresh_rfid" checked><span><strong>RFID</strong><small>Spulendaten neu lesen</small></span></label>
+                <label class="check-card drying-command"><input type="checkbox" data-command="start_drying" data-drying-permission><span><strong>Trocknung starten</strong><small>AMS 2 Pro oder AMS HT aufheizen</small></span></label>
+                <label class="check-card danger-command drying-command"><input type="checkbox" data-command="stop_drying" data-drying-permission><span><strong>Trocknung stoppen</strong><small>Laufende AMS-Trocknung beenden</small></span></label>
+                <label class="check-card camera-command"><input type="checkbox" data-command="camera_recording" data-camera-permission><span><strong>Kameraaufnahme</strong><small>Lokale Aufnahme ein- oder ausschalten</small></span></label>
+                <label class="check-card camera-command"><input type="checkbox" data-command="camera_timelapse" data-camera-permission><span><strong>Zeitraffer</strong><small>Timelapse ein- oder ausschalten</small></span></label>
+                <label class="check-card camera-command"><input type="checkbox" data-command="camera_resolution" data-camera-permission><span><strong>Auflösung</strong><small>Gemeldete Kameraauflösung wählen</small></span></label>
+              </div>
+              <div class="drying-permission-info">
+                <strong>Trocknungsrechte bleiben standardmäßig aus.</strong>
+                <p class="drying-permission-note">Aktiviere sie nur für AMS 2 Pro oder AMS HT. „Trocknung starten“ aktiviert aus Sicherheitsgründen automatisch auch das Stopprecht.</p>
+              </div>
+              <div class="camera-permission-info">
+                <strong>Kamerasteuerungen bleiben standardmäßig aus.</strong>
+                <p class="camera-command-note">Sie werden nur für unterstützte X1-Modelle angeboten. Das Livebild-Opt-in und diese Schreibrechte sind voneinander unabhängig.</p>
+              </div>
+              <p id="write-warning" class="permission-warning">Düsen- und Betttemperaturen, G-Code sowie Laden und Entladen sind grundsätzlich nicht freigegeben.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>TLS-Sicherheit</legend>
+            <div class="tls-standard">
+              <span class="tls-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg>
+              </span>
+              <div>
+                <strong>Bambu-CA verwenden</strong>
+                <p>Empfohlen. Die Verbindung wird mit dem mitgelieferten Bambu-Zertifikat geprüft.</p>
+              </div>
+              <span class="recommended-badge">Standard</span>
+            </div>
+
+            <details class="advanced-panel">
+              <summary>Erweiterte TLS-Einstellungen</summary>
+              <div class="advanced-content">
+                <label class="toggle-card compact-toggle">
+                  <span>
+                    <strong>Selbstsigniertes Zertifikat zulassen</strong>
+                    <small>Nur für ältere oder abweichende Drucker-Firmware.</small>
+                  </span>
+                  <input data-field="allow_self_signed_tls" type="checkbox" role="switch">
+                  <span class="switch-control" aria-hidden="true"></span>
+                </label>
+                <div class="tls-warning" hidden>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
+                  <p>Ohne Zertifikatsprüfung könnten LAN-Code und Steuerbefehle im lokalen Netz abgefangen werden. Nutze nach Möglichkeit zusätzlich den Fingerprint.</p>
+                </div>
+                <div class="field-group tls-fingerprint" hidden>
+                  <label data-for="tls_fingerprint_sha256">SHA-256-Fingerprint <span class="optional">Optional</span></label>
+                  <input data-field="tls_fingerprint_sha256" type="text" maxlength="95" spellcheck="false" autocomplete="off" placeholder="64 Hex-Zeichen, Doppelpunkte erlaubt">
+                  <p class="field-help">Bindet die Verbindung zusätzlich an das konkrete Druckerzertifikat.</p>
+                </div>
+              </div>
+            </details>
+          </fieldset>
+
+          <details class="advanced-panel refresh-panel">
+            <summary>Erweiterte Aktualisierungseinstellungen</summary>
+            <div class="advanced-content field-grid two-columns">
+              <div class="field-group">
+                <label data-for="stale_after_seconds">Daten gelten als veraltet nach</label>
+                <div class="unit-field"><input data-field="stale_after_seconds" type="number" required min="15" max="3600" step="1" inputmode="numeric" value="90"><span>Sek.</span></div>
+              </div>
+              <div class="field-group">
+                <label data-for="full_refresh_seconds">Vollständige Aktualisierung</label>
+                <div class="unit-field"><input data-field="full_refresh_seconds" type="number" required min="300" max="3600" step="1" inputmode="numeric" value="300"><span>Sek.</span></div>
+              </div>
+            </div>
+          </details>
+        </div>
+      </article>
+    </template>
+
+    <datalist id="bambu-models">
+      <option value="A1"></option>
+      <option value="A1 mini"></option>
+      <option value="P1P"></option>
+      <option value="P1S"></option>
+      <option value="X1"></option>
+      <option value="X1 Carbon"></option>
+      <option value="X1E"></option>
+    </datalist>
+  </body>
+</html>
