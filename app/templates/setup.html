@@ -389,12 +389,12 @@
                 </label>
                 <div class="tls-warning" hidden>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5m0 3.5v.01M10.3 3.8 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/></svg>
-                  <p>Ohne Zertifikatsprüfung könnten LAN-Code und Steuerbefehle im lokalen Netz abgefangen werden. Nutze nach Möglichkeit zusätzlich den Fingerprint.</p>
+                  <p>Dieser Legacy-Modus ist nur mit einem exakten Zertifikats-Fingerprint möglich. Er wird vor der MQTT-Anmeldung geprüft, damit der LAN-Code nicht an ein fremdes Zertifikat gesendet wird.</p>
                 </div>
                 <div class="field-group tls-fingerprint" hidden>
-                  <label data-for="tls_fingerprint_sha256">SHA-256-Fingerprint <span class="optional">Optional</span></label>
+                  <label data-for="tls_fingerprint_sha256">SHA-256-Fingerprint</label>
                   <input data-field="tls_fingerprint_sha256" type="text" maxlength="95" spellcheck="false" autocomplete="off" placeholder="64 Hex-Zeichen, Doppelpunkte erlaubt">
-                  <p class="field-help">Bindet die Verbindung zusätzlich an das konkrete Druckerzertifikat.</p>
+                  <p class="field-help">Pflicht im Legacy-Modus. Bindet die Verbindung vor der Anmeldung an das konkrete Druckerzertifikat.</p>
                 </div>
               </div>
             </details>

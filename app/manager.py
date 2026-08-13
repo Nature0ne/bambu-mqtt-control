@@ -18,6 +18,17 @@ DRYING_COMMANDS = frozenset({"start_drying", "stop_drying"})
 CAMERA_COMMANDS = frozenset(
     {"camera_recording", "camera_timelapse", "camera_resolution"}
 )
+SIGNED_PRINT_COMMANDS = frozenset(
+    {
+        "pause",
+        "resume",
+        "stop",
+        "speed",
+        "refresh_rfid",
+        "start_drying",
+        "stop_drying",
+    }
+)
 
 
 class PrinterNotFound(KeyError):
@@ -66,14 +77,25 @@ class ControlManager:
     def _notify(self) -> None:
         self._on_change()
 
-    def start(self) -> None:
+    def start(self, *, strict: bool = False) -> None:
+        started: list[Any] = []
+        failures: list[str] = []
         for printer_id, worker in self._workers.items():
             try:
                 worker.start()
+                started.append(worker)
             except Exception:
                 LOGGER.exception("Failed to start MQTT worker for %s", printer_id)
                 self.store.mark_connection(printer_id, "error", "MQTT-Client konnte nicht starten")
                 self._notify()
+                failures.append(printer_id)
+        if strict and failures:
+            for worker in started:
+                try:
+                    worker.stop()
+                except Exception:
+                    LOGGER.exception("Failed to roll back an MQTT worker start")
+            raise RuntimeError("one or more MQTT workers could not be started")
 
     def stop(self) -> None:
         for printer_id, worker in self._workers.items():
@@ -93,6 +115,21 @@ class ControlManager:
             raise CommandUnavailable("Drucker ist offline oder die Daten sind veraltet")
         if printer["connection_state"] == "partial":
             raise CommandUnavailable("Vollständiger Druckerstatus steht noch aus")
+        # Current printer firmware requires signed MQTT commands whenever the
+        # Developer LAN mode flag is absent or disabled. Sending an unsigned
+        # print command can otherwise look successful while doing nothing.
+        # stop_drying is the sole fail-safe exception: it cannot initiate heat
+        # or motion and may still stop an already active dryer on mixed/older
+        # firmware. Its dedicated post-command state confirmation remains
+        # mandatory below.
+        if (
+            command in SIGNED_PRINT_COMMANDS
+            and command != "stop_drying"
+            and printer["state"].get("developer_lan_mode") is not True
+        ):
+            raise CommandUnavailable(
+                "Developer-LAN-Modus muss für diesen Druckerbefehl bestätigt sein"
+            )
         status = str(printer["state"].get("status") or "unknown").lower()
         printing = {"running", "printing", "prepare", "slicing"}
         paused = {"pause", "paused"}
@@ -241,6 +278,21 @@ class ControlManager:
                     "Diese Kameraauflösung wurde vom Drucker nicht gemeldet"
                 )
             return [built]
+        if command == "light":
+            built = self.command_builder.build(command, params)
+            node = built.payload["system"]["led_node"]
+            printer = self._printer_snapshot(printer_id)
+            lights = printer["state"].get("lights") or {}
+            reported_nodes = {
+                item.get("node")
+                for item in (lights.get("nodes") or [])
+                if isinstance(item, Mapping)
+            }
+            if node not in reported_nodes:
+                raise CommandUnavailable(
+                    "Dieser Lichtknoten wurde vom Drucker nicht gemeldet"
+                )
+            return [built]
         return [self.command_builder.build(command, params)]
 
     def send_command(
@@ -301,7 +353,7 @@ class ControlManager:
 
         try:
             built_commands = self._build_commands(printer_id, canonical, params)
-        except CommandError as exc:
+        except (CommandError, CommandUnavailable) as exc:
             self.audit.record(
                 actor=actor,
                 printer_id=printer_id,

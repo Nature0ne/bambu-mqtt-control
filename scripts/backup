@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+umask 077
+
+if [ -n "${BAMBU_COMPOSE_FILES:-}" ] && [ -z "${COMPOSE_FILE:-}" ]; then
+    COMPOSE_FILE=$BAMBU_COMPOSE_FILES
+    export COMPOSE_FILE
+fi
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 BACKUP.tar.gz" >&2
+    exit 64
+fi
+
+requested=$1
+archive_directory=$(dirname "$requested")
+archive_name=$(basename "$requested")
+archive="${archive_directory}/${archive_name}"
+
+if [ ! -d "$archive_directory" ]; then
+    echo "Backup directory does not exist: $archive_directory" >&2
+    exit 1
+fi
+if [ -e "$archive" ] || [ -L "$archive" ]; then
+    echo "Refusing to overwrite existing backup: $archive" >&2
+    exit 1
+fi
+
+temporary=$(mktemp "${archive_directory}/.${archive_name}.tmp.XXXXXX")
+cleanup() {
+    rm -f "$temporary"
+}
+trap cleanup EXIT HUP INT TERM
+chmod 600 "$temporary"
+
+if ! docker compose exec -T bambu-control \
+    python3 -m app.backup create >"$temporary"; then
+    echo "Backup failed; no archive was published." >&2
+    exit 1
+fi
+if [ ! -s "$temporary" ]; then
+    echo "Backup failed: the generated archive is empty." >&2
+    exit 1
+fi
+
+# A hard link publishes the completed archive without an overwrite race. Both
+# paths are deliberately in the same directory/filesystem.
+if ! ln "$temporary" "$archive"; then
+    echo "Backup destination appeared while the backup was running: $archive" >&2
+    exit 1
+fi
+rm -f "$temporary"
+trap - EXIT HUP INT TERM
+
+echo "Backup created: $archive" >&2

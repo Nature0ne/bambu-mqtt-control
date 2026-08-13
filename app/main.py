@@ -6,8 +6,10 @@ import json
 import logging
 import os
 import secrets
+import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,7 @@ from fastapi import (
     Depends,
     FastAPI,
     HTTPException,
+    Query,
     Request,
     WebSocket,
     WebSocketDisconnect,
@@ -32,6 +35,15 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from .admin import (
+    MAX_ADMIN_BODY_BYTES,
+    AdminConfigConflict,
+    AdminConfigPersistenceError,
+    AdminConfigStore,
+    AdminConfigValidationError,
+    parse_admin_config_update,
+    public_config,
+)
 from .audit import AuditLog
 from .camera import (
     CAMERA_MEDIA_TYPE,
@@ -64,6 +76,7 @@ from .setup import (
     SetupValidationError,
     parse_setup_request,
 )
+from .version import build_version
 from .web import (
     SESSION_COOKIE_NAME,
     EventHub,
@@ -80,7 +93,34 @@ from .web import (
 LOGGER = logging.getLogger(__name__)
 APP_DIR = Path(__file__).resolve().parent
 MAX_LOGIN_BODY_BYTES = 8 * 1024
+MAX_COMMAND_BODY_BYTES = 16 * 1024
 DEFAULT_WEBSOCKET_REVALIDATION_SECONDS = 5.0
+
+
+def _audit_timestamp(value: str | None) -> str | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Ungültiger Audit-Zeitfilter") from exc
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Audit-Zeitfilter benötigt eine Zeitzone")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _audit_filter(value: str | None, *, maximum: int) -> str | None:
+    if value is None:
+        return None
+    if (
+        not value
+        or len(value) > maximum
+        or "\x00" in value
+        or "\n" in value
+        or "\r" in value
+    ):
+        raise HTTPException(status_code=422, detail="Ungültiger Audit-Filter")
+    return value
 
 
 class CommandRequest(BaseModel):
@@ -118,6 +158,109 @@ def _health_payload(manager: ControlManager | None) -> dict[str, Any]:
         "configured_printers": len(printers),
         "online_printers": sum(1 for printer in printers if printer["online"]),
         "stale_printers": sum(1 for printer in printers if printer["stale"]),
+    }
+
+
+def _diagnostics_payload(request: Request) -> dict[str, Any]:
+    config: AppConfig = request.app.state.config
+    snapshot = request.app.state.manager.snapshot()
+    configs = {printer.id: printer for printer in config.printers}
+    printers: list[dict[str, Any]] = []
+    for printer in snapshot["printers"]:
+        printer_config = configs[printer["id"]]
+        state = printer.get("state") or {}
+        camera = state.get("camera") or {}
+        ams = state.get("ams") or {}
+        reported = state.get("diagnostics") or {}
+        sd_card = reported.get("sd_card") or {}
+        print_stage = reported.get("print_stage") or {}
+        firmware = reported.get("firmware") or {}
+        printer_firmware = firmware.get("printer") or {}
+        hms = reported.get("hms") or {}
+        printers.append(
+            {
+                "id": printer["id"],
+                "name": printer["name"],
+                "model": printer["model"],
+                "connection_state": printer["connection_state"],
+                "online": bool(printer["online"]),
+                "stale": bool(printer["stale"]),
+                "last_seen": printer.get("last_seen"),
+                "writable": printer_config.writable,
+                "allowed_commands": (
+                    sorted(printer_config.allowed_commands)
+                    if printer_config.writable
+                    else []
+                ),
+                "developer_lan_mode": state.get("developer_lan_mode"),
+                "camera": {
+                    "configured": printer_config.camera_enabled,
+                    "reported_available": camera.get("available"),
+                    "local_protocol": camera.get("local_protocol"),
+                },
+                "device": {
+                    "wifi_signal_dbm": reported.get("wifi_signal_dbm"),
+                    "door_open": reported.get("door_open"),
+                    "sd_card": {
+                        "present": sd_card.get("present"),
+                        "status": sd_card.get("status"),
+                    },
+                    "print_stage": {
+                        "phase_id": print_stage.get("phase_id"),
+                        "stage_id": print_stage.get("stage_id"),
+                        "substage_id": print_stage.get("substage_id"),
+                    },
+                    "firmware": {
+                        "printer": {
+                            "software": printer_firmware.get("software"),
+                            "hardware": printer_firmware.get("hardware"),
+                        },
+                        "modules": [
+                            {
+                                "name": module.get("name"),
+                                "software": module.get("software"),
+                                "hardware": module.get("hardware"),
+                            }
+                            for module in firmware.get("modules") or []
+                            if isinstance(module, dict)
+                        ],
+                    },
+                    "hms": {
+                        "count": hms.get("count", 0),
+                        "items": [
+                            {
+                                "code": item.get("code"),
+                                "module": item.get("module"),
+                                "severity": item.get("severity"),
+                            }
+                            for item in hms.get("items") or []
+                            if isinstance(item, dict)
+                        ],
+                    },
+                },
+                "ams": [
+                    {
+                        "id": unit.get("id"),
+                        "model": unit.get("model"),
+                        "dry_capable": bool(unit.get("dry_capable")),
+                        "experimental": bool(unit.get("experimental")),
+                        "drying_active": bool((unit.get("drying") or {}).get("active")),
+                    }
+                    for unit in ams.get("units") or []
+                ],
+            }
+        )
+    return {
+        "version": 1,
+        "build_version": build_version(),
+        "configured": True,
+        "restart_required": False,
+        "uptime_seconds": max(
+            0,
+            int(time.monotonic() - request.app.state.started_at_monotonic),
+        ),
+        "audit_retention": request.app.state.audit.retention(),
+        "printers": printers,
     }
 
 
@@ -172,11 +315,13 @@ def create_app(
         application.state.audit = None
         application.state.manager = None
         application.state.setup_store = setup_store
+        application.state.admin_config_store = AdminConfigStore(setup_store.config_path)
         application.state.setup_rate_limiter = supplied_setup_rate_limiter or SetupRateLimiter()
         application.state.session_store = supplied_session_store or SessionStore()
         application.state.login_rate_limiter = supplied_login_rate_limiter or LoginRateLimiter()
         application.state.camera_manager = camera_manager
         application.state.websocket_revalidation_seconds = websocket_revalidation_seconds
+        application.state.started_at_monotonic = time.monotonic()
         application.state.runtime_lock = asyncio.Lock()
         application.state.csrf_token = secrets.token_urlsafe(32)
         application.state.hub = hub
@@ -267,6 +412,32 @@ def create_app(
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+    @application.get("/manage", response_class=HTMLResponse)
+    async def manage_page(
+        request: Request,
+        actor: str | None = Depends(require_page_user),
+    ):
+        if request.app.state.config is None:
+            return RedirectResponse(url="/setup", status_code=307)
+        if actor is None:
+            return RedirectResponse(url="/login", status_code=303)
+        response = templates.TemplateResponse(request=request, name="manage.html", context={})
+        response.set_cookie(
+            "bambu_csrf",
+            request.app.state.csrf_token,
+            secure=True,
+            httponly=False,
+            samesite="strict",
+            path="/",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; "
+            "base-uri 'none'; form-action 'self'"
+        )
         return response
 
     @application.get("/setup", response_class=HTMLResponse)
@@ -714,13 +885,249 @@ def create_app(
                 "printer_count": len(config.printers),
             }
 
-    @application.post("/api/printers/{printer_id}/commands")
-    async def printer_command(
-        printer_id: str,
-        command_request: CommandRequest,
+    @application.get("/api/admin/config")
+    async def admin_config(request: Request, _actor: str = Depends(require_user)):
+        return public_config(request.app.state.config)
+
+    @application.put("/api/admin/config")
+    async def update_admin_config(
         request: Request,
         actor: str = Depends(require_csrf),
     ):
+        media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
+        if media_type != "application/json":
+            raise HTTPException(
+                status_code=415,
+                detail="Konfigurationsänderung muss JSON enthalten",
+            )
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_ADMIN_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="Konfigurationsanfrage ist zu groß")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Ungültige Konfigurationsanfrage") from exc
+        body_buffer = bytearray()
+        async for chunk in request.stream():
+            if len(body_buffer) + len(chunk) > MAX_ADMIN_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Konfigurationsanfrage ist zu groß")
+            body_buffer.extend(chunk)
+        try:
+            raw_update = json.loads(bytes(body_buffer))
+            config_update = parse_admin_config_update(raw_update)
+        except (
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+            RecursionError,
+            AdminConfigValidationError,
+        ) as exc:
+            raise HTTPException(status_code=422, detail="Ungültige Konfigurationsdaten") from exc
+
+        async with request.app.state.runtime_lock:
+            current: AppConfig = request.app.state.config
+            current_password = config_update.current_password.get_secret_value()
+            client_key = (
+                f"{request.client.host}:admin-config"
+                if request.client
+                else "unknown:admin-config"
+            )
+            limiter: LoginRateLimiter = request.app.state.login_rate_limiter
+            try:
+                limiter.check(client_key)
+            except LoginRateLimited as exc:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Zu viele Bestätigungsversuche",
+                    headers={"Retry-After": str(max(1, int(limiter.window_seconds)))},
+                ) from exc
+            if not credentials_match(
+                current.web.username,
+                current_password,
+                current.web,
+            ):
+                limiter.record_failure(client_key)
+                # The web session is still valid.  Keep 401 reserved for an
+                # expired/invalid session so browser clients do not redirect
+                # away from the correction flow.
+                raise HTTPException(status_code=403, detail="Passwortbestätigung fehlgeschlagen")
+            limiter.reset_on_success(client_key)
+
+            origin = request.headers.get("origin")
+            if origin not in config_update.web.allowed_origins:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Der aktuelle Origin muss freigegeben bleiben",
+                )
+
+            prepared = None
+            candidate_manager = None
+            old_manager: ControlManager = request.app.state.manager
+            try:
+                prepared = await run_in_threadpool(
+                    request.app.state.admin_config_store.prepare,
+                    config_update,
+                    current,
+                )
+                candidate_manager = manager_factory(prepared.config, request.app.state.audit)
+            except AdminConfigValidationError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except AdminConfigConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except AdminConfigPersistenceError as exc:
+                LOGGER.error("Administrative configuration could not be prepared")
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            except Exception as exc:
+                if prepared is not None:
+                    await run_in_threadpool(prepared.abort)
+                LOGGER.exception("Replacement runtime could not be constructed")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Neue Laufzeit konnte nicht vorbereitet werden",
+                ) from exc
+
+            old_stopped = False
+            try:
+                await request.app.state.camera_manager.close()
+                await run_in_threadpool(old_manager.stop)
+                old_stopped = True
+                await run_in_threadpool(candidate_manager.start, strict=True)
+                await run_in_threadpool(prepared.commit)
+            except AdminConfigConflict as exc:
+                await run_in_threadpool(candidate_manager.stop)
+                if old_stopped:
+                    await run_in_threadpool(old_manager.start)
+                await run_in_threadpool(prepared.abort)
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except AdminConfigPersistenceError as exc:
+                await run_in_threadpool(candidate_manager.stop)
+                if old_stopped:
+                    await run_in_threadpool(old_manager.start)
+                await run_in_threadpool(prepared.abort)
+                LOGGER.error("Administrative configuration could not be committed")
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            except Exception as exc:
+                await run_in_threadpool(candidate_manager.stop)
+                if old_stopped:
+                    await run_in_threadpool(old_manager.start)
+                await run_in_threadpool(prepared.abort)
+                LOGGER.exception("Replacement runtime failed to start")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Neue Laufzeit konnte nicht gestartet werden",
+                ) from exc
+
+            request.app.state.config = prepared.config
+            request.app.state.manager = candidate_manager
+            candidate_manager.set_on_change(
+                lambda: hub.publish_threadsafe(candidate_manager.snapshot())
+            )
+            await run_in_threadpool(prepared.finalize)
+            hub.publish_threadsafe(candidate_manager.snapshot())
+
+            try:
+                request.app.state.audit.record(
+                    actor=actor,
+                    printer_id="system",
+                    command="update_config",
+                    params={},
+                    result="applied",
+                )
+            except Exception:
+                LOGGER.exception("Administrative configuration audit failed")
+
+            credentials_changed = (
+                current.web.username != prepared.config.web.username
+                or current.web.password != prepared.config.web.password
+            )
+            response_payload = public_config(prepared.config)
+            response_payload.update(
+                {
+                    "applied": True,
+                    "runtime": {
+                        "manager_reloaded": True,
+                        "reconnecting_printer_ids": [
+                            printer.id for printer in prepared.config.printers
+                        ],
+                    },
+                }
+            )
+            response = JSONResponse(response_payload)
+            if credentials_changed:
+                session_store: SessionStore = request.app.state.session_store
+                session_token = session_store.replace_all(prepared.config.web.username)
+                response.set_cookie(
+                    SESSION_COOKIE_NAME,
+                    session_token,
+                    max_age=session_store.ttl_seconds,
+                    secure=True,
+                    httponly=True,
+                    samesite="strict",
+                    path="/",
+                )
+            return response
+
+    @application.get("/api/admin/audit")
+    async def admin_audit_history(
+        request: Request,
+        _actor: str = Depends(require_user),
+        limit: int = Query(default=50, ge=1, le=100),
+        cursor: int | None = Query(default=None, ge=1),
+        printer_id: str | None = Query(default=None, max_length=64),
+        command: str | None = Query(default=None, max_length=64),
+        result: str | None = Query(default=None, max_length=32),
+        actor: str | None = Query(default=None, max_length=128),
+        from_time: str | None = Query(default=None, alias="from", max_length=64),
+        to_time: str | None = Query(default=None, alias="to", max_length=64),
+    ):
+        canonical_from = _audit_timestamp(from_time)
+        canonical_to = _audit_timestamp(to_time)
+        if canonical_from is not None and canonical_to is not None and canonical_from > canonical_to:
+            raise HTTPException(status_code=422, detail="Ungültiger Audit-Zeitraum")
+        return await run_in_threadpool(
+            request.app.state.audit.history,
+            limit=limit,
+            cursor=cursor,
+            printer_id=_audit_filter(printer_id, maximum=64),
+            command=_audit_filter(command, maximum=64),
+            result=_audit_filter(result, maximum=32),
+            actor=_audit_filter(actor, maximum=128),
+            from_time=canonical_from,
+            to_time=canonical_to,
+        )
+
+    @application.get("/api/admin/diagnostics")
+    async def admin_diagnostics(
+        request: Request,
+        _actor: str = Depends(require_user),
+    ):
+        return _diagnostics_payload(request)
+
+    @application.post("/api/printers/{printer_id}/commands")
+    async def printer_command(
+        printer_id: str,
+        request: Request,
+        actor: str = Depends(require_csrf),
+    ):
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise HTTPException(status_code=415, detail="JSON erwartet")
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_COMMAND_BODY_BYTES:
+                    raise HTTPException(status_code=413, detail="Befehl ist zu groß")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Ungültige Anfrage") from exc
+        body_buffer = bytearray()
+        async for chunk in request.stream():
+            if len(body_buffer) + len(chunk) > MAX_COMMAND_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="Befehl ist zu groß")
+            body_buffer.extend(chunk)
+        try:
+            raw_command = json.loads(body_buffer)
+            command_request = CommandRequest.model_validate(raw_command)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail="Ungültiger Befehl") from exc
         try:
             return await run_in_threadpool(
                 request.app.state.manager.send_command,

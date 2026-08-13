@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="theme-color" content="#0b1110">
+    <title>Verwaltung · Bambu Kontrollzentrum</title>
+    <link rel="stylesheet" href="/static/manage.css">
+    <script src="/static/manage.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#manage-content">Zum Inhalt springen</a>
+    <header class="manage-header">
+      <a class="brand" href="/" aria-label="Zur Druckerübersicht">
+        <span class="brand-mark" aria-hidden="true">B</span>
+        <span><small>Lokales Drucklabor</small><strong>Bambu Kontrollzentrum</strong></span>
+      </a>
+      <nav class="header-actions" aria-label="Schnellzugriff">
+        <a class="button button-secondary" href="/">Übersicht</a>
+        <button id="logout-button" class="button button-ghost" type="button">Abmelden</button>
+      </nav>
+    </header>
+
+    <div class="manage-shell">
+      <aside class="manage-sidebar">
+        <p class="eyebrow">Verwaltung</p>
+        <h1>System &amp; Drucker</h1>
+        <p class="sidebar-copy">Einstellungen ändern, Aktivitäten prüfen und den Zustand des lokalen Dienstes verstehen.</p>
+        <nav class="tab-list" aria-label="Verwaltungsbereiche">
+          <a href="#configuration" data-tab="configuration"><span aria-hidden="true">⚙</span> Konfiguration</a>
+          <a href="#history" data-tab="history"><span aria-hidden="true">↺</span> Verlauf</a>
+          <a href="#diagnostics" data-tab="diagnostics"><span aria-hidden="true">◉</span> Diagnose</a>
+        </nav>
+        <div class="privacy-note"><strong>Bleibt lokal</strong><span>Geheimnisse werden nie ausgelesen oder im Verlauf angezeigt.</span></div>
+      </aside>
+
+      <main id="manage-content" class="manage-content">
+        <div id="page-alert" class="alert" role="alert" tabindex="-1" hidden>
+          <strong id="page-alert-title"></strong>
+          <p id="page-alert-message"></p>
+        </div>
+        <div id="page-status" class="sr-only" role="status" aria-live="polite"></div>
+
+        <section id="configuration" class="tab-panel" data-panel="configuration" aria-labelledby="configuration-title">
+          <div class="page-heading">
+            <div><p class="eyebrow">Konfiguration</p><h2 id="configuration-title">Zugang und Geräte</h2><p>Änderungen werden ohne Neustart übernommen. Die Drucker verbinden sich anschließend neu.</p></div>
+            <button id="save-button" class="button button-primary" type="button" form="config-form">Änderungen speichern</button>
+          </div>
+
+          <div id="config-loading" class="loading-card" role="status">Konfiguration wird geladen …</div>
+          <form id="config-form" novalidate hidden>
+            <section class="panel-card" aria-labelledby="web-settings-title">
+              <div class="card-heading"><div><p class="eyebrow">Webzugang</p><h3 id="web-settings-title">Anmeldung &amp; erlaubte Adressen</h3></div><span class="safe-badge">Geschützt</span></div>
+              <div class="field-grid two-columns">
+                <label class="field"><span>Benutzername</span><input id="web-username" type="text" required maxlength="128" autocomplete="username"><small>Name für die Anmeldung an dieser Website.</small></label>
+                <label class="field"><span>Neues Passwort <em>optional</em></span><input id="web-password" type="password" minlength="12" maxlength="512" autocomplete="new-password"><small>Leer lassen, um das bestehende Passwort zu behalten.</small></label>
+                <label class="field field-wide"><span>Erlaubte HTTPS-Adressen</span><textarea id="allowed-origins" rows="3" required spellcheck="false"></textarea><small>Eine vollständige Adresse je Zeile. Die aktuell geöffnete Adresse muss enthalten bleiben.</small></label>
+              </div>
+            </section>
+
+            <section class="devices-section" aria-labelledby="printers-title">
+              <div class="section-heading"><div><p class="eyebrow">MQTT-Geräte</p><h3 id="printers-title">Drucker</h3><p>AMS-Einheiten werden automatisch über den jeweiligen Drucker erkannt.</p></div><button id="add-printer-button" class="button button-secondary" type="button">+ Drucker hinzufügen</button></div>
+              <div id="printer-list" class="printer-list" aria-live="polite"></div>
+            </section>
+
+            <div class="save-bar"><div><strong>Vollständige Konfiguration</strong><span>Entfernte Geräte werden beim Speichern aus dem Kontrollzentrum gelöscht.</span></div><button class="button button-primary" type="submit">Prüfen &amp; speichern</button></div>
+          </form>
+        </section>
+
+        <section id="history" class="tab-panel" data-panel="history" aria-labelledby="history-title" hidden>
+          <div class="page-heading"><div><p class="eyebrow">Nachvollziehbar</p><h2 id="history-title">Befehlsverlauf</h2><p>Zeigt nur Metadaten – keine Zugangscodes oder Befehlsinhalte.</p></div><button id="refresh-history" class="button button-secondary" type="button">Aktualisieren</button></div>
+          <form id="history-filters" class="filter-card">
+            <label><span>Drucker</span><input id="filter-printer" type="text" maxlength="64" placeholder="z. B. x1c"></label>
+            <label><span>Befehl</span><input id="filter-command" type="text" maxlength="64" placeholder="z. B. pause"></label>
+            <label><span>Ergebnis</span><select id="filter-result"><option value="">Alle</option><option value="applied">Übernommen</option><option value="acknowledged">Bestätigt</option><option value="rejected">Abgelehnt</option><option value="timeout">Zeitüberschreitung</option><option value="failed">Fehler</option></select></label>
+            <label><span>Von</span><input id="filter-from" type="datetime-local"></label>
+            <label><span>Bis</span><input id="filter-to" type="datetime-local"></label>
+            <button class="button button-primary" type="submit">Filtern</button>
+          </form>
+          <div id="history-loading" class="loading-card" hidden>Verlauf wird geladen …</div>
+          <div id="history-empty" class="empty-card" hidden><strong>Noch keine passenden Einträge</strong><span>Sobald ein Steuerbefehl verarbeitet wird, erscheint er hier.</span></div>
+          <div id="history-table-wrap" class="table-wrap" hidden><table><thead><tr><th>Zeit</th><th>Drucker</th><th>Befehl</th><th>Ergebnis</th><th>Benutzer</th></tr></thead><tbody id="history-rows"></tbody></table></div>
+          <div class="pagination"><button id="history-previous" class="button button-secondary" type="button" disabled>Zurück</button><span id="history-page">Seite 1</span><button id="history-next" class="button button-secondary" type="button" disabled>Weiter</button></div>
+        </section>
+
+        <section id="diagnostics" class="tab-panel" data-panel="diagnostics" aria-labelledby="diagnostics-title" hidden>
+          <div class="page-heading"><div><p class="eyebrow">Systemzustand</p><h2 id="diagnostics-title">Diagnose</h2><p>Bewusst ohne Netzwerkadressen, Seriennummern oder Geheimnisse.</p></div><button id="refresh-diagnostics" class="button button-secondary" type="button">Aktualisieren</button></div>
+          <div id="diagnostics-loading" class="loading-card">Diagnose wird geladen …</div>
+          <div id="diagnostics-content" hidden>
+            <div id="system-facts" class="fact-grid"></div>
+            <div id="diagnostic-printers" class="diagnostic-grid"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="save-dialog" class="confirm-dialog" aria-labelledby="save-dialog-title">
+      <form id="save-dialog-form">
+        <p class="eyebrow">Sicherheitsbestätigung</p>
+        <h2 id="save-dialog-title">Konfiguration wirklich übernehmen?</h2>
+        <p>Die aktuelle Druckerverbindung wird kurz neu aufgebaut. Laufende Druckaufträge werden nicht gestartet oder gestoppt.</p>
+        <label class="field"><span>Aktuelles Web-Passwort</span><input id="current-password" type="password" required maxlength="512" autocomplete="current-password"><small>Damit bestätigen wir, dass du diese Änderung selbst ausführst.</small></label>
+        <div class="dialog-actions"><button id="cancel-save" class="button button-secondary" type="button">Abbrechen</button><button id="confirm-save" class="button button-primary" type="submit">Jetzt übernehmen</button></div>
+      </form>
+    </dialog>
+
+    <template id="printer-template">
+      <article class="printer-card">
+        <header><div><span class="printer-number"></span><div><strong class="printer-card-title">Drucker</strong><small class="printer-secret-state"></small></div></div><button class="remove-printer button button-danger" type="button">Entfernen</button></header>
+        <div class="field-grid three-columns">
+          <label class="field"><span>Name</span><input data-field="name" type="text" required maxlength="80"></label>
+          <label class="field"><span>Kennung</span><input data-field="id" type="text" required maxlength="32" pattern="[a-z0-9][a-z0-9_-]{0,31}" spellcheck="false"><small>Kleinbuchstaben, Zahlen, _ oder -</small></label>
+          <label class="field"><span>Modell</span><input data-field="model" type="text" required maxlength="80" placeholder="X1C"></label>
+          <label class="field"><span>IP-Adresse / Hostname</span><input data-field="host" type="text" required maxlength="253" spellcheck="false"></label>
+          <label class="field"><span>MQTT-Port</span><input data-field="port" type="number" required min="1" max="65535" value="8883"></label>
+          <label class="field"><span>Seriennummer</span><input data-field="serial" type="text" required minlength="4" maxlength="64" pattern="[A-Za-z0-9_-]{4,64}" spellcheck="false"></label>
+          <label class="field"><span>LAN-Zugangscode <em>optional</em></span><input data-field="access_code" type="password" maxlength="256" autocomplete="new-password"><small class="access-help">Leer lassen, um den bestehenden Code zu behalten.</small></label>
+          <label class="field"><span>Status gilt als veraltet nach</span><span class="input-unit"><input data-field="stale_after_seconds" type="number" required min="15" max="3600"><b>Sek.</b></span></label>
+          <label class="field"><span>Vollständige Abfrage</span><span class="input-unit"><input data-field="full_refresh_seconds" type="number" required min="0" max="3600"><b>Sek.</b></span><small>0 deaktiviert, sonst 300–3600.</small></label>
+        </div>
+        <div class="toggle-grid">
+          <label class="toggle"><input data-field="writable" type="checkbox"><span><strong>Steuerung erlauben</strong><small>Erst danach sind ausgewählte Schreibbefehle aktiv.</small></span></label>
+          <label class="toggle"><input data-field="camera_enabled" type="checkbox"><span><strong>Lokales Livebild</strong><small>Kamerastream nach Anmeldung anbieten.</small></span></label>
+          <label class="toggle"><input data-field="allow_self_signed_tls" type="checkbox"><span><strong>Selbstsigniertes TLS</strong><small>Legacy-Modus; exakter Fingerprint ist Pflicht und wird vor der MQTT-Anmeldung geprüft.</small></span></label>
+        </div>
+        <section class="permissions"><div><strong>Erlaubte Steuerbefehle</strong><small>Nur benötigte Funktionen aktivieren. „Trocknung starten“ schließt „Trocknung stoppen“ immer ein.</small></div><div class="permission-grid"></div></section>
+        <details class="advanced"><summary>TLS &amp; Verbindungsdetails</summary><div class="field-grid two-columns"><label class="field"><span>TLS-CA-Datei <em>schreibgeschützt</em></span><input data-field="tls_ca_file" type="text" readonly tabindex="-1"></label><label class="field"><span>SHA-256-Fingerprint <em>Pflicht bei selbstsigniertem TLS</em></span><input data-field="tls_fingerprint_sha256" type="text" maxlength="95" spellcheck="false"></label></div></details>
+      </article>
+    </template>
+  </body>
+</html>

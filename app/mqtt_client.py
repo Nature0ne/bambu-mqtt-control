@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import secrets
+import socket
 import ssl
 import threading
 from collections.abc import Callable
@@ -21,6 +22,37 @@ MAX_PAYLOAD_BYTES = 2 * 1024 * 1024
 
 class MqttPublishError(RuntimeError):
     pass
+
+
+def _pinned_tls_context(config: PrinterConfig) -> ssl.SSLContext:
+    """Build trust for exactly the probed leaf before MQTT sends credentials."""
+    expected = config.tls_fingerprint_sha256
+    if not config.allow_self_signed_tls or config.tls_ca_file or not expected:
+        raise ssl.SSLError("self-signed TLS requires a certificate fingerprint")
+
+    probe = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    probe.minimum_version = ssl.TLSVersion.TLSv1_2
+    probe.check_hostname = False
+    probe.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((config.host, config.port), timeout=5) as connection:
+        with probe.wrap_socket(connection, server_hostname=config.host) as transport:
+            certificate = transport.getpeercert(binary_form=True)
+    if not certificate or not secrets.compare_digest(
+        hashlib.sha256(certificate).hexdigest(), expected
+    ):
+        raise ssl.SSLError("printer certificate fingerprint mismatch")
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_REQUIRED
+    context.load_verify_locations(cadata=ssl.DER_cert_to_PEM_cert(certificate))
+    if not hasattr(ssl, "VERIFY_X509_PARTIAL_CHAIN"):
+        raise ssl.SSLError("leaf certificate pinning is unavailable")
+    context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+    if hasattr(ssl, "VERIFY_X509_STRICT"):
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return context
 
 
 class PrinterMqttClient:
@@ -43,7 +75,7 @@ class PrinterMqttClient:
             protocol=mqtt.MQTTv311,
         )
         self.client.username_pw_set("bblp", config.access_code)
-        if config.tls_ca_file:
+        if not config.allow_self_signed_tls and config.tls_ca_file:
             context = ssl.create_default_context(
                 ssl.Purpose.SERVER_AUTH,
                 cafile=config.tls_ca_file,
@@ -53,11 +85,12 @@ class PrinterMqttClient:
             context.check_hostname = False
             if hasattr(ssl, "VERIFY_X509_STRICT"):
                 context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            self.client.tls_set_context(context)
+            self._tls_context_configured = True
         else:
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-        self.client.tls_set_context(context)
+            # The leaf pin is established synchronously in start(), before
+            # Paho opens a connection that could carry the LAN access code.
+            self._tls_context_configured = False
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
@@ -69,6 +102,7 @@ class PrinterMqttClient:
             tuple[threading.Event, dict[str, Any], str, str],
         ] = {}
         self._tls_failed = False
+        self._pin_retry_timer: threading.Timer | None = None
         self._refresh_timer: threading.Timer | None = None
         self._stopping = threading.Event()
 
@@ -76,11 +110,51 @@ class PrinterMqttClient:
         LOGGER.info("Starting local MQTT connection for printer %s", self.config.id)
         self.store.mark_connection(self.config.id, "connecting")
         self._stopping.clear()
+        if not self._tls_context_configured:
+            self._schedule_pin_retry(delay=0)
+            return
+        self._start_mqtt_loop()
+
+    def _start_mqtt_loop(self) -> None:
         self.client.connect_async(self.config.host, self.config.port, keepalive=60)
         self.client.loop_start()
 
+    def _start_pinned_connection(self) -> None:
+        if self._stopping.is_set():
+            return
+        try:
+            context = _pinned_tls_context(self.config)
+        except (OSError, ssl.SSLError):
+            LOGGER.warning("TLS pin probe failed for printer %s", self.config.id)
+            self.store.mark_connection(
+                self.config.id,
+                "offline",
+                "TLS-Zertifikat konnte noch nicht sicher bestätigt werden",
+            )
+            self.on_state_change()
+            self._schedule_pin_retry(delay=10)
+            return
+        if self._stopping.is_set():
+            return
+        self.client.tls_set_context(context)
+        self._tls_context_configured = True
+        self._pin_retry_timer = None
+        self._start_mqtt_loop()
+
+    def _schedule_pin_retry(self, *, delay: float) -> None:
+        if self._stopping.is_set():
+            return
+        timer = threading.Timer(delay, self._start_pinned_connection)
+        timer.daemon = True
+        self._pin_retry_timer = timer
+        timer.start()
+
     def stop(self) -> None:
         self._stopping.set()
+        timer = self._pin_retry_timer
+        self._pin_retry_timer = None
+        if timer is not None:
+            timer.cancel()
         self._cancel_full_refresh()
         self.client.disconnect()
         self.client.loop_stop()
@@ -88,7 +162,11 @@ class PrinterMqttClient:
         self.on_state_change()
 
     def _certificate_matches(self, client: mqtt.Client) -> bool:
-        expected = self.config.tls_fingerprint_sha256
+        expected = (
+            self.config.tls_fingerprint_sha256
+            if self.config.allow_self_signed_tls
+            else None
+        )
         if not expected:
             return True
         sock = client.socket()

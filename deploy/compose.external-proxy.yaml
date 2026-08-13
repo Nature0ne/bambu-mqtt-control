@@ -1,4 +1,15 @@
+name: bambu-mqtt-control
+
+# Complete deployment for operators who terminate HTTPS elsewhere. Extending
+# only the app keeps its hardening canonical and deliberately excludes Caddy.
 services:
   bambu-control:
+    extends:
+      file: ../compose.yaml
+      service: bambu-control
     ports:
       - "${BAMBU_APP_BIND_ADDRESS:-127.0.0.1}:${BAMBU_APP_PORT:-9208}:9208"
+
+volumes:
+  bambu-config:
+  bambu-data:

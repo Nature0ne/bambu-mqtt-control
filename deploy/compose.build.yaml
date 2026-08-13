@@ -1,0 +1,10 @@
+services:
+  bambu-control:
+    image: "${BAMBU_BUILD_IMAGE:-bambu-mqtt-control:local}"
+    pull_policy: build
+    build:
+      context: .
+      args:
+        VERSION: "${BAMBU_CONTROL_VERSION:-dev}"
+        VCS_REF: "${BAMBU_VCS_REF:-local}"
+        BUILD_DATE: "${BAMBU_BUILD_DATE:-unknown}"
