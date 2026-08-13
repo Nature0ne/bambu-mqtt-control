@@ -170,6 +170,14 @@ class StandaloneDistributionTests(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("BAMBU_COMPOSE_FILES=deploy/compose.external-proxy.yaml", readme)
         self.assertIn(
+            "COMPOSE_FILE=deploy/compose.external-proxy.yaml docker compose up -d --remove-orphans",
+            readme,
+        )
+        self.assertNotIn(
+            "docker compose -f deploy/compose.external-proxy.yaml up",
+            readme,
+        )
+        self.assertIn(
             "BAMBU_COMPOSE_FILES=compose.yaml:deploy/compose.build.yaml", readme
         )
 
