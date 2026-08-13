@@ -150,7 +150,7 @@ cookies. Publish only the application port on host loopback and start it
 without bundled Caddy:
 
 ```sh
-docker compose -f deploy/compose.external-proxy.yaml up -d --remove-orphans
+COMPOSE_FILE=deploy/compose.external-proxy.yaml docker compose up -d --remove-orphans
 ```
 
 The external-proxy file is a complete Compose model containing only the app.

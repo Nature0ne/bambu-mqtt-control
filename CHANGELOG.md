@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-08-13
+
+### Fixed
+
+- The first-start command for an external HTTPS proxy now selects the Compose
+  model through `COMPOSE_FILE`, so the root `.env` is loaded consistently.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
