@@ -193,6 +193,14 @@ class SetupPrinterInput(BaseModel):
             raise ValueError("invalid full refresh interval")
         return value
 
+    @model_validator(mode="after")
+    def validate_tls_strategy(self) -> SetupPrinterInput:
+        if self.allow_self_signed_tls and not self.tls_fingerprint_sha256:
+            raise ValueError("self-signed TLS requires a certificate fingerprint")
+        if not self.allow_self_signed_tls and self.tls_fingerprint_sha256:
+            raise ValueError("verified TLS must not contain a leaf fingerprint")
+        return self
+
 class SetupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 

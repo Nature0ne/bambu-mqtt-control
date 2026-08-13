@@ -147,6 +147,20 @@ class SessionStore:
         with self._lock:
             self._sessions.pop(digest, None)
 
+    def replace_all(self, actor: str) -> str:
+        """Revoke every session and atomically issue one replacement session."""
+        if not actor:
+            raise ValueError("session actor is required")
+        token = self._token_factory()
+        if not self._valid_token(token):
+            raise ValueError("invalid generated session token")
+        digest = self._digest(token)
+        now = self._clock()
+        with self._lock:
+            self._sessions.clear()
+            self._sessions[digest] = (actor, now + self.ttl_seconds)
+        return token
+
 
 class EventHub:
     def __init__(self) -> None:

@@ -171,9 +171,14 @@ def _parse_printer(raw_value: Any, seen_ids: set[str], seen_serials: set[str]) -
         fingerprint = fingerprint.replace(":", "").lower()
         if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
             raise ConfigError(f"invalid SHA-256 TLS fingerprint for {printer_id}")
-    if not allow_self_signed and not ca_file:
+    if allow_self_signed:
+        if ca_file:
+            raise ConfigError(
+                f"{printer_id} self-signed TLS must not contain tls_ca_file"
+            )
+    elif not ca_file or fingerprint:
         raise ConfigError(
-            f"{printer_id} needs tls_ca_file or explicit allow_self_signed_tls: true"
+            f"{printer_id} verified TLS needs only tls_ca_file"
         )
 
     seen_ids.add(printer_id)

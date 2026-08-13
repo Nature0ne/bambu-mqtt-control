@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import sqlite3
+import ssl
 import stat
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import Mock
+
+import yaml
 
 SERVICE_DIR = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SERVICE_DIR))
@@ -47,7 +50,7 @@ from app.config import (
 from app.main import create_app
 from app.manager import CommandForbidden, CommandUnavailable, ControlManager
 from app.metrics import render_metrics
-from app.mqtt_client import PrinterMqttClient
+from app.mqtt_client import PrinterMqttClient, _pinned_tls_context
 from app.setup import (
     SetupRateLimiter,
     SetupStore,
@@ -97,12 +100,13 @@ def full_status(**overrides):
         "total_layer_num": 0,
         "spd_lvl": 2,
         "ams": {"ams": []},
-        "lights_report": [],
+        "lights_report": [{"node": "chamber_light", "mode": "off"}],
         "hms": [],
         "print_error": 0,
         "cooling_fan_speed": "0",
         "nozzle_target_temper": 0,
         "bed_target_temper": 0,
+        "fun": 0,
     }
     values.update(overrides)
     return values
@@ -260,6 +264,7 @@ printers:
     serial: 01P00A000000001
     access_code_file: {access}
     allow_self_signed_tls: true
+    tls_fingerprint_sha256: {"a" * 64}
 """
             )
 
@@ -1217,6 +1222,119 @@ class CommandTests(unittest.TestCase):
                 "camera_resolution",
             }.intersection(DEFAULT_COMMANDS)
         )
+
+
+class SignatureCommandGateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.manager_index = 0
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def manager_with_feature_flag(self, feature_flag):
+        self.manager_index += 1
+        printer = printer_config(
+            model="P2S",
+            allowed_commands=frozenset(
+                {
+                    "pause",
+                    "resume",
+                    "stop",
+                    "speed",
+                    "light",
+                    "refresh_rfid",
+                    "start_drying",
+                    "stop_drying",
+                }
+            ),
+        )
+        config = AppConfig(
+            printers=(printer,),
+            web=WebConfig(
+                username="admin",
+                password="web-secret",
+                allowed_origins=("https://testserver",),
+            ),
+            audit_db=str(
+                pathlib.Path(self.temp_dir.name)
+                / f"audit-{self.manager_index}.sqlite3"
+            ),
+        )
+        manager = ControlManager(
+            config,
+            AuditLog(config.audit_db),
+            client_factory=FakeMqttClient,
+        )
+        manager.start()
+        report = full_status(
+            gcode_state="RUNNING",
+            lights_report=[{"node": "chamber_light", "mode": "off"}],
+            ams={"tray_now": "255", "ams": [{"id": "0", "tray": []}]},
+        )
+        if feature_flag is None:
+            report.pop("fun")
+        else:
+            report["fun"] = feature_flag
+        manager.store.apply_report(printer.id, {"print": report})
+        return manager, printer
+
+    def test_normal_print_commands_fail_closed_without_confirmed_developer_lan_mode(self):
+        commands = (
+            ("pause", {}),
+            ("resume", {}),
+            ("stop", {}),
+            ("speed", {"level": 2}),
+            ("refresh_rfid", {"ams_id": 0}),
+            (
+                "start_drying",
+                {"ams_id": 0, "temp": 55, "duration": 2},
+            ),
+        )
+        for feature_flag in (None, "20000000"):
+            for command, params in commands:
+                with self.subTest(feature_flag=feature_flag, command=command):
+                    manager, printer = self.manager_with_feature_flag(feature_flag)
+                    with self.assertRaisesRegex(
+                        CommandUnavailable,
+                        "Developer-LAN-Modus",
+                    ):
+                        manager.send_command(
+                            printer.id,
+                            command,
+                            params,
+                            "admin",
+                        )
+                    manager.stop()
+
+    def test_explicit_developer_lan_mode_allows_a_valid_print_command(self):
+        manager, printer = self.manager_with_feature_flag(0)
+
+        result = manager.send_command(printer.id, "pause", {}, "admin")
+
+        self.assertEqual(result["status"], "acknowledged")
+        self.assertEqual(
+            manager._workers[printer.id].payloads[-1]["print"]["command"],
+            "pause",
+        )
+        manager.stop()
+
+    def test_reported_system_light_remains_separately_gated(self):
+        manager, printer = self.manager_with_feature_flag("20000000")
+
+        result = manager.send_command(
+            printer.id,
+            "light",
+            {"node": "chamber_light", "on": True},
+            "admin",
+        )
+
+        self.assertEqual(result["status"], "acknowledged")
+        self.assertEqual(
+            manager._workers[printer.id].payloads[-1]["system"]["led_node"],
+            "chamber_light",
+        )
+        manager.stop()
 
 
 class DryingManagerTests(unittest.TestCase):
@@ -2272,6 +2390,179 @@ class MqttClientTests(unittest.TestCase):
         worker._publish(builder.build("light", {"on": True}).payload)
         self.assertEqual(worker.client.publish.call_args.kwargs["qos"], 0)
 
+    def test_pinned_tls_retries_without_connecting_before_validation(self):
+        class FakeTimer:
+            def __init__(self, delay, callback):
+                self.delay = delay
+                self.callback = callback
+                self.daemon = False
+                self.started = False
+
+            def start(self):
+                self.started = True
+
+            def cancel(self):
+                pass
+
+        timers = []
+
+        def timer_factory(delay, callback):
+            timer = FakeTimer(delay, callback)
+            timers.append(timer)
+            return timer
+
+        config = printer_config(
+            tls_ca_file=None,
+            allow_self_signed_tls=True,
+            tls_fingerprint_sha256="a" * 64,
+        )
+        worker = PrinterMqttClient(config, StateStore((config,)), lambda: None)
+        worker.client.tls_set_context = Mock()
+        worker.client.connect_async = Mock()
+        worker.client.loop_start = Mock()
+        pinned_context = Mock()
+
+        with (
+            unittest.mock.patch.object(
+                threading, "Timer", side_effect=timer_factory
+            ),
+            unittest.mock.patch(
+                "app.mqtt_client._pinned_tls_context",
+                side_effect=[OSError("offline"), pinned_context],
+            ),
+        ):
+            worker.start()
+            self.assertEqual(timers[0].delay, 0)
+            self.assertTrue(timers[0].started)
+            worker.client.connect_async.assert_not_called()
+            timers[0].callback()
+            self.assertEqual(timers[1].delay, 10)
+            self.assertTrue(timers[1].started)
+            worker.client.connect_async.assert_not_called()
+            timers[1].callback()
+
+        worker.client.tls_set_context.assert_called_once_with(pinned_context)
+        worker.client.connect_async.assert_called_once_with(
+            config.host, config.port, keepalive=60
+        )
+        worker.client.loop_start.assert_called_once_with()
+
+    def test_pinned_tls_probe_mismatch_never_builds_a_credentials_connection(self):
+        config = printer_config(
+            tls_ca_file=None,
+            allow_self_signed_tls=True,
+            tls_fingerprint_sha256="a" * 64,
+        )
+        connection = Mock()
+        transport = Mock()
+        transport.getpeercert.return_value = b"different-certificate"
+        connection.__enter__ = Mock(return_value=connection)
+        connection.__exit__ = Mock(return_value=False)
+        transport.__enter__ = Mock(return_value=transport)
+        transport.__exit__ = Mock(return_value=False)
+        probe_context = Mock()
+        probe_context.wrap_socket.return_value = transport
+
+        with (
+            unittest.mock.patch(
+                "app.mqtt_client.ssl.SSLContext", return_value=probe_context
+            ),
+            unittest.mock.patch(
+                "app.mqtt_client.socket.create_connection",
+                return_value=connection,
+            ),
+        ):
+            with self.assertRaises(ssl.SSLError):
+                _pinned_tls_context(config)
+
+        probe_context.wrap_socket.assert_called_once()
+
+    def test_config_rejects_mixed_or_incomplete_tls_modes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            access = root / "access"
+            password = root / "password"
+            access.write_text("access-code\n", encoding="utf-8")
+            password.write_text("web-password-long\n", encoding="utf-8")
+
+            base = {
+                "web": {
+                    "username": "admin",
+                    "password_file": str(password),
+                    "allowed_origins": ["https://printer.test"],
+                },
+                "printers": [
+                    {
+                        "id": "x1c",
+                        "host": "192.0.2.1",
+                        "serial": "01S00A000000001",
+                        "access_code_file": str(access),
+                    }
+                ],
+            }
+            invalid_modes = (
+                {
+                    "allow_self_signed_tls": True,
+                    "tls_ca_file": "/app/certs/bambu-lab-ca.pem",
+                    "tls_fingerprint_sha256": "a" * 64,
+                },
+                {
+                    "allow_self_signed_tls": False,
+                    "tls_ca_file": "/app/certs/bambu-lab-ca.pem",
+                    "tls_fingerprint_sha256": "a" * 64,
+                },
+            )
+            for index, mode in enumerate(invalid_modes):
+                with self.subTest(mode=mode):
+                    document = json.loads(json.dumps(base))
+                    document["printers"][0].update(mode)
+                    path = root / f"invalid-{index}.yml"
+                    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+                    with self.assertRaises(ConfigError):
+                        load_config(path)
+
+    def test_legacy_self_signed_config_loads_but_cannot_send_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            access = root / "access"
+            password = root / "password"
+            access.write_text("access-code\n", encoding="utf-8")
+            password.write_text("web-password-long\n", encoding="utf-8")
+            config_path = root / "printers.yml"
+            config_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "web": {
+                            "username": "admin",
+                            "password_file": str(password),
+                            "allowed_origins": ["https://printer.test"],
+                        },
+                        "printers": [
+                            {
+                                "id": "legacy",
+                                "host": "192.0.2.1",
+                                "serial": "01S00A000000001",
+                                "access_code_file": str(access),
+                                "allow_self_signed_tls": True,
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = load_config(config_path).printers[0]
+
+        self.assertIsNone(config.tls_fingerprint_sha256)
+        worker = PrinterMqttClient(config, StateStore((config,)), lambda: None)
+        worker.client.connect_async = Mock()
+        worker.client.loop_start = Mock()
+        timer = Mock()
+        with unittest.mock.patch.object(threading, "Timer", return_value=timer):
+            worker.start()
+        worker.client.connect_async.assert_not_called()
+        worker.client.loop_start.assert_not_called()
+        timer.start.assert_called_once_with()
+
 
 class AuditAndMetricsTests(unittest.TestCase):
     def test_audit_redacts_nested_secrets(self):
@@ -2648,6 +2939,41 @@ class ApiTests(unittest.TestCase):
             json={"command": "pause", "params": {}},
         )
         self.assertEqual(without_csrf.status_code, 403)
+
+    def test_command_body_is_bounded_after_auth_and_never_echoed(self):
+        self.client.get("/", auth=self.auth)
+        csrf = self.client.cookies["bambu_csrf"]
+        headers = {
+            "Origin": "https://testserver",
+            "X-CSRF-Token": csrf,
+            "Content-Type": "application/json",
+        }
+        secret = "do-not-echo-command-body"
+        oversized = self.client.post(
+            "/api/printers/werkstatt/commands",
+            auth=self.auth,
+            headers={**headers, "Content-Length": str(16 * 1024 + 1)},
+            content=b"{}",
+        )
+        streamed = self.client.post(
+            "/api/printers/werkstatt/commands",
+            auth=self.auth,
+            headers=headers,
+            content=json.dumps(
+                {"command": "pause", "params": {"note": secret * 1000}}
+            ),
+        )
+        malformed = self.client.post(
+            "/api/printers/werkstatt/commands",
+            auth=self.auth,
+            headers=headers,
+            content=f'{{"command":"pause","{secret}":',
+        )
+
+        self.assertEqual(oversized.status_code, 413)
+        self.assertEqual(streamed.status_code, 413)
+        self.assertEqual(malformed.status_code, 422)
+        self.assertNotIn(secret, streamed.text + malformed.text)
 
     def test_unit_rfid_refresh_publishes_all_reported_slots(self):
         self.client.get("/", auth=self.auth)

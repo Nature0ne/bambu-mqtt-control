@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
+from .commands import LIGHT_NODES
 from .config import PrinterConfig
 
 AMS_ENV_PATTERN = re.compile(
@@ -34,6 +35,29 @@ FULL_STATUS_FIELD_GROUPS = (
     frozenset({"bed_target_temper"}),
 )
 SIGNATURE_REQUIRED_BIT = 0x20000000
+HOME_FLAG_SD_CARD_PRESENT = 0x00000100
+HOME_FLAG_SD_CARD_ABNORMAL = 0x00000200
+DOOR_OPEN_BIT = 0x00800000
+HMS_SEVERITIES = {
+    1: "fatal",
+    2: "serious",
+    3: "common",
+    4: "info",
+}
+HMS_MODULES = {
+    0x03: "motion_controller",
+    0x05: "mainboard",
+    0x07: "ams",
+    0x08: "toolhead",
+    0x0C: "camera",
+}
+VERSION_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+:-]*")
+LIGHT_NODE_LABELS = {
+    "chamber_light": "Bauraumlicht",
+    "chamber_light2": "Bauraumlicht 2",
+    "work_light": "Arbeitslicht",
+    "heatbed_light": "Druckbettlicht",
+}
 DRY_CAPABLE_AMS_MODELS = frozenset({"AMS 2 Pro", "AMS HT"})
 AMS_MODULE_PREFIXES = (
     ("ams_f1/", "AMS Lite"),
@@ -78,6 +102,13 @@ def _integer(value: Any) -> int | None:
     return int(number) if number is not None else None
 
 
+def _strict_integer(value: Any) -> int | None:
+    number = _number(value)
+    if number is None or not float(number).is_integer():
+        return None
+    return int(number)
+
+
 def _feature_bits(value: Any) -> int | None:
     if value is None or isinstance(value, bool):
         return None
@@ -90,6 +121,170 @@ def _feature_bits(value: Any) -> int | None:
         except ValueError:
             return None
     return _integer(value)
+
+
+def _uint32(value: Any) -> int | None:
+    number = _strict_integer(value)
+    if number is None or not 0 <= number <= 0xFFFFFFFF:
+        return None
+    return number
+
+
+def _safe_version_token(value: Any, *, max_length: int = 64) -> str | None:
+    """Keep version metadata useful without reflecting arbitrary report strings."""
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not 1 <= len(text) <= max_length or not VERSION_TOKEN_PATTERN.fullmatch(text):
+        return None
+    return text
+
+
+def _normalise_version_modules(modules: Any) -> list[dict[str, str | None]]:
+    if not isinstance(modules, list):
+        return []
+    result: list[dict[str, str | None]] = []
+    seen: set[str] = set()
+    for module in modules[:64]:
+        if not isinstance(module, Mapping):
+            continue
+        name = _safe_version_token(module.get("name"), max_length=48)
+        if name is None or name in seen:
+            continue
+        software = _safe_version_token(
+            module.get("sw_ver", module.get("software"))
+        )
+        hardware = _safe_version_token(
+            module.get("hw_ver", module.get("hardware"))
+        )
+        if software is None and hardware is None:
+            continue
+        seen.add(name)
+        result.append(
+            {
+                "name": name,
+                "software": software,
+                "hardware": hardware,
+            }
+        )
+    return result
+
+
+def _normalise_wifi_signal(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        match = re.fullmatch(r"\s*(-?\d{1,3})\s*(?:dBm)?\s*", value, re.IGNORECASE)
+        if not match:
+            return None
+        signal = int(match.group(1))
+    else:
+        signal = _strict_integer(value)
+    if signal is None or not -127 <= signal <= 0:
+        return None
+    return signal
+
+
+def _normalise_stage_id(value: Any) -> int | None:
+    stage_id = _strict_integer(value)
+    if stage_id is None or stage_id in {-1, 255} or not 0 <= stage_id <= 65534:
+        return None
+    return stage_id
+
+
+def _normalise_sd_card(print_state: Mapping[str, Any]) -> dict[str, Any]:
+    home_flag = _integer(print_state.get("home_flag"))
+    if home_flag is not None and home_flag & HOME_FLAG_SD_CARD_ABNORMAL:
+        return {"present": True, "status": "abnormal"}
+
+    direct = _enabled_flag(print_state.get("sdcard")) if "sdcard" in print_state else None
+    if direct is not None:
+        return {"present": direct, "status": "normal" if direct else "missing"}
+
+    if home_flag is None:
+        return {"present": None, "status": "unknown"}
+    present = bool(home_flag & HOME_FLAG_SD_CARD_PRESENT)
+    return {"present": present, "status": "normal" if present else "missing"}
+
+
+def _normalise_door_open(
+    print_state: Mapping[str, Any], printer_model: Any
+) -> bool | None:
+    if "door_open" in print_state:
+        return _enabled_flag(print_state.get("door_open"))
+
+    canonical_model = re.sub(r"[^a-z0-9]", "", str(printer_model or "").lower())
+    if canonical_model.startswith("x1"):
+        home_flag = _integer(print_state.get("home_flag"))
+        return None if home_flag is None else bool(home_flag & DOOR_OPEN_BIT)
+    if canonical_model.startswith(("h2", "p2s", "x2d")):
+        stat = _feature_bits(print_state.get("stat"))
+        return None if stat is None else bool(stat & DOOR_OPEN_BIT)
+    return None
+
+
+def _normalise_hms(print_state: Mapping[str, Any]) -> dict[str, Any]:
+    result: list[dict[str, str]] = []
+    seen: set[tuple[int, int]] = set()
+    hms_values = print_state.get("hms")
+    if not isinstance(hms_values, list):
+        hms_values = []
+    for item in hms_values[:64]:
+        if not isinstance(item, Mapping):
+            continue
+        attribute = _uint32(item.get("attr"))
+        code = _uint32(item.get("code"))
+        if not attribute or not code or (attribute, code) in seen:
+            continue
+        seen.add((attribute, code))
+        identifier = (
+            f"HMS_{attribute >> 16:04X}_{attribute & 0xFFFF:04X}_"
+            f"{code >> 16:04X}_{code & 0xFFFF:04X}"
+        )
+        result.append(
+            {
+                "code": identifier,
+                "module": HMS_MODULES.get((attribute >> 24) & 0xFF, "unknown"),
+                "severity": HMS_SEVERITIES.get(code >> 16, "unknown"),
+            }
+        )
+    return {"count": len(result), "items": result}
+
+
+def _normalise_diagnostics(
+    print_state: Mapping[str, Any],
+    modules: Any,
+    printer_model: Any,
+) -> dict[str, Any]:
+    version_modules = _normalise_version_modules(modules)
+    printer_module = next(
+        (module for module in version_modules if module["name"].lower() == "ota"),
+        None,
+    )
+    return {
+        "wifi_signal_dbm": _normalise_wifi_signal(print_state.get("wifi_signal")),
+        "door_open": _normalise_door_open(print_state, printer_model),
+        "sd_card": _normalise_sd_card(print_state),
+        "print_stage": {
+            "phase_id": _normalise_stage_id(print_state.get("stg_cur")),
+            "stage_id": _normalise_stage_id(print_state.get("mc_print_stage")),
+            "substage_id": _normalise_stage_id(
+                print_state.get("mc_print_sub_stage")
+            ),
+        },
+        "firmware": {
+            "printer": (
+                {
+                    "software": printer_module["software"],
+                    "hardware": printer_module["hardware"],
+                }
+                if printer_module is not None
+                else {"software": None, "hardware": None}
+            ),
+            "modules": version_modules,
+        },
+        "hms": _normalise_hms(print_state),
+    }
 
 
 def drying_printer_policy(model: str) -> str:
@@ -157,21 +352,40 @@ def _temperature(current: Any, target: Any = None) -> dict[str, float | int | No
     return {"current": _number(current), "target": _number(target)}
 
 
-def _normalise_lights(print_state: Mapping[str, Any]) -> dict[str, str]:
-    result = {"chamber": "unknown", "work": "unknown"}
+def _normalise_lights(print_state: Mapping[str, Any]) -> dict[str, Any]:
+    reported: dict[str, str] = {}
     reports = print_state.get("lights_report") or []
     if not isinstance(reports, list):
-        return result
+        reports = []
     for item in reports:
         if not isinstance(item, Mapping):
             continue
-        node = str(item.get("node") or item.get("led_node") or "")
+        node_value = item.get("node")
+        if not isinstance(node_value, str):
+            node_value = item.get("led_node")
+        if not isinstance(node_value, str):
+            continue
+        node = node_value.strip()
+        if node not in LIGHT_NODES:
+            continue
         mode = str(item.get("mode") or item.get("led_mode") or "unknown").lower()
-        if node == "chamber_light":
-            result["chamber"] = mode
-        elif node == "work_light":
-            result["work"] = mode
-    return result
+        if mode not in {"on", "off", "flashing"}:
+            mode = "unknown"
+        reported[node] = mode
+    return {
+        # Retain the original two fields for existing API/UI clients.
+        "chamber": reported.get("chamber_light", "unknown"),
+        "work": reported.get("work_light", "unknown"),
+        "nodes": [
+            {
+                "node": node,
+                "label": label,
+                "mode": reported[node],
+            }
+            for node, label in LIGHT_NODE_LABELS.items()
+            if node in reported
+        ],
+    }
 
 
 def _enabled_flag(value: Any) -> bool | None:
@@ -389,14 +603,22 @@ def _normalise_ams(
 
 def _normalise_errors(print_state: Mapping[str, Any]) -> list[dict[str, str]]:
     errors: list[dict[str, str]] = []
-    hms_values = print_state.get("hms") or []
-    if isinstance(hms_values, list):
-        for item in hms_values:
-            if not isinstance(item, Mapping):
-                continue
-            code = str(item.get("code") or item.get("attr") or item.get("id") or "HMS")
-            message = str(item.get("msg") or item.get("message") or f"Druckerhinweis {code}")
-            errors.append({"code": code, "message": message, "severity": "warning"})
+    severity_map = {
+        "fatal": "error",
+        "serious": "error",
+        "common": "warning",
+        "info": "info",
+        "unknown": "warning",
+    }
+    for item in _normalise_hms(print_state)["items"]:
+        code = item["code"]
+        errors.append(
+            {
+                "code": code,
+                "message": f"Der Drucker meldet {code}.",
+                "severity": severity_map[item["severity"]],
+            }
+        )
     print_error = _integer(print_state.get("print_error"))
     if print_error:
         errors.append(
@@ -417,6 +639,8 @@ def normalise_report(raw: Mapping[str, Any]) -> dict[str, Any]:
     ams_models = raw.get("_bambu_control_ams_models")
     if not isinstance(ams_models, Mapping):
         ams_models = {}
+    modules = raw.get("_bambu_control_version_modules")
+    printer_model = raw.get("_bambu_control_printer_model")
     ams, active_tray = _normalise_ams(print_state, environment, ams_models)
     progress = _number(print_state.get("mc_percent", print_state.get("percent")))
     if progress is not None and not 0 <= float(progress) <= 100:
@@ -457,6 +681,11 @@ def normalise_report(raw: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "ams": ams,
         "errors": _normalise_errors(print_state),
+        "diagnostics": _normalise_diagnostics(
+            print_state,
+            modules,
+            printer_model,
+        ),
     }
 
 
@@ -476,6 +705,9 @@ class StateStore:
         }
         self._ams_models: dict[str, dict[str, dict[str, str]]] = {
             printer_id: {} for printer_id in self._configs
+        }
+        self._version_modules: dict[str, list[dict[str, str | None]]] = {
+            printer_id: [] for printer_id in self._configs
         }
         self._ams_dry_generation: dict[str, dict[int, int]] = {
             printer_id: {} for printer_id in self._configs
@@ -535,11 +767,21 @@ class StateStore:
                 isinstance(info_section, Mapping)
                 and str(info_section.get("command") or "") == "get_version"
             ):
-                reported_models = _ams_models_from_modules(info_section.get("module"))
+                reported_modules_value = info_section.get("module")
+                reported_models = _ams_models_from_modules(reported_modules_value)
                 for ams_id, model in reported_models.items():
                     if self._ams_models[printer_id].get(ams_id) != model:
                         self._ams_models[printer_id][ams_id] = model
                         changed = True
+                reported_versions = _normalise_version_modules(
+                    reported_modules_value
+                )
+                if (
+                    reported_versions
+                    and self._version_modules[printer_id] != reported_versions
+                ):
+                    self._version_modules[printer_id] = reported_versions
+                    changed = True
             if status_changed:
                 self._last_seen[printer_id] = self._clock()
                 self._connection[printer_id] = "online"
@@ -647,6 +889,10 @@ class StateStore:
                 raw["_bambu_control_ams_models"] = copy.deepcopy(
                     self._ams_models[config.id]
                 )
+                raw["_bambu_control_version_modules"] = copy.deepcopy(
+                    self._version_modules[config.id]
+                )
+                raw["_bambu_control_printer_model"] = config.model
                 state = normalise_report(raw)
                 drying_policy = drying_printer_policy(config.model)
                 for unit in state["ams"]["units"]:

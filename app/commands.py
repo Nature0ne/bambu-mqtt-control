@@ -8,6 +8,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+LIGHT_NODES = frozenset(
+    {
+        "chamber_light",
+        "chamber_light2",
+        "work_light",
+        "heatbed_light",
+    }
+)
+
 
 class CommandError(ValueError):
     """A rejected or malformed printer command."""
@@ -92,7 +101,7 @@ class CommandBuilder:
             "resume": frozenset(),
             "stop": frozenset(),
             "speed": frozenset({"level"}),
-            "light": frozenset({"on"}),
+            "light": frozenset({"on", "node"}),
             "refresh_rfid": frozenset({"ams_id", "slot_id"}),
             "start_drying": frozenset(
                 {"ams_id", "temp", "duration", "rotate_tray", "filament"}
@@ -137,11 +146,14 @@ class CommandBuilder:
             on_value = params.get("on")
             if not isinstance(on_value, bool):
                 raise CommandError("on must be true or false")
+            node = params.get("node", "chamber_light")
+            if not isinstance(node, str) or node not in LIGHT_NODES:
+                raise CommandError("node is not a supported light node")
             body = {
                 "system": {
                     "sequence_id": sequence,
                     "command": "ledctrl",
-                    "led_node": "chamber_light",
+                    "led_node": node,
                     "led_mode": "on" if on_value else "off",
                     "led_on_time": 500,
                     "led_off_time": 500,

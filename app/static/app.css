@@ -175,6 +175,47 @@ svg {
   flex: 0 0 auto;
 }
 
+.header-tools,
+.header-navigation {
+  display: flex;
+  align-items: center;
+}
+
+.header-tools {
+  gap: clamp(0.7rem, 2vw, 1.35rem);
+}
+
+.header-navigation {
+  gap: 0.4rem;
+}
+
+.header-link {
+  min-height: 36px;
+  padding: 0.48rem 0.72rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text-muted);
+  background: rgb(19 30 28 / 72%);
+  font-size: 0.76rem;
+  font-weight: 720;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.header-link:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.header-button {
+  cursor: pointer;
+}
+
+.header-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .connection-pill {
   display: inline-flex;
   align-items: center;
@@ -898,6 +939,10 @@ svg {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 0.55rem;
+}
+
+.light-controls {
+  display: contents;
 }
 
 .capability-badge {
@@ -2035,6 +2080,20 @@ svg {
   .brand .eyebrow,
   .last-update {
     display: none;
+  }
+
+  .header-status {
+    display: none;
+  }
+
+  .header-tools {
+    gap: 0.4rem;
+  }
+
+  .header-link {
+    min-height: 34px;
+    padding-inline: 0.58rem;
+    font-size: 0.7rem;
   }
 
   .connection-pill {

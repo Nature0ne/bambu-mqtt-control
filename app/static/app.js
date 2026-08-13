@@ -29,6 +29,7 @@
     globalAlertTitle: document.querySelector("#global-alert-title"),
     lastUpdate: document.querySelector("#last-update"),
     loadingView: document.querySelector("#loading-view"),
+    logoutButton: document.querySelector("#logout-button"),
     onlineCount: document.querySelector("#online-count"),
     printerGrid: document.querySelector("#printer-grid"),
     printerTemplate: document.querySelector("#printer-template"),
@@ -130,6 +131,22 @@
     stop: "Druck abbrechen",
     stop_drying: "AMS-Trocknung stoppen",
   };
+
+  const LIGHT_LABELS = {
+    chamber_light: "Bauraumlicht",
+    chamber_light2: "Bauraumlicht 2",
+    work_light: "Arbeitslicht",
+    heatbed_light: "Druckbettlicht",
+  };
+
+  const SIGNED_UI_COMMANDS = new Set([
+    "pause",
+    "refresh_rfid",
+    "resume",
+    "speed",
+    "start_drying",
+    "stop",
+  ]);
 
   function numberOrNull(value) {
     if (value === null || value === undefined || value === "") return null;
@@ -945,7 +962,9 @@
         availableForState = availableForState && (supportedResolutions.length > 0 || Boolean(camera.resolution));
       }
       const pending = isPending(printerId, command);
-      control.disabled = !actionable || !availableForState || pending;
+      const developerUnavailable = SIGNED_UI_COMMANDS.has(command)
+        && printer.state?.developer_lan_mode !== true;
+      control.disabled = !actionable || !availableForState || developerUnavailable || pending;
       control.classList.toggle("is-pending", pending);
 
       if (!supported) control.title = "Von diesem Modell nicht unterstützt";
@@ -953,15 +972,16 @@
       else if (hasPartialData(printer)) control.title = "Live-Daten sind unvollständig oder veraltet";
       else if (hasConnectionError(printer)) control.title = "MQTT-Verbindung ist gestört";
       else if (!printer.writable) control.title = "Schreibzugriff ist deaktiviert";
+      else if (developerUnavailable) control.title = "Developer-LAN-Modus ist nicht bestätigt";
       else if (!availableForState) control.title = "Im aktuellen Druckzustand nicht verfügbar";
       else control.removeAttribute("title");
     });
 
-    const lightState = stringOr(printer.state?.lights?.chamber, "unknown").toLowerCase();
-    const lightButton = card.querySelector(".light-button");
-    lightButton.dataset.nextState = lightState === "on" ? "off" : "on";
-    lightButton.setAttribute("aria-pressed", String(lightState === "on"));
-    setText(lightButton, ".light-label", lightState === "on" ? "Licht aus" : lightState === "off" ? "Licht an" : "Licht");
+    const lightCount = renderLightControls(
+      card.querySelector(".light-controls"),
+      printer,
+      actionable,
+    );
 
     const speedSelect = card.querySelector(".speed-select");
     speedSelect.value = speedValue(printer.state?.speed_level);
@@ -986,8 +1006,50 @@
 
     renderResolutionOptions(card.querySelector(".camera-resolution-select"), camera);
 
-    const additionalCommands = ["light", "speed", "camera_recording", "camera_timelapse", "camera_resolution"];
-    card.querySelector(".additional-controls-panel").hidden = !additionalCommands.some((command) => supports(printer, command));
+    const additionalCommands = ["speed", "camera_recording", "camera_timelapse", "camera_resolution"];
+    card.querySelector(".additional-controls-panel").hidden = lightCount === 0
+      && !additionalCommands.some((command) => supports(printer, command));
+  }
+
+  function renderLightControls(container, printer, actionable) {
+    if (!supports(printer, "light")) {
+      container.replaceChildren();
+      return 0;
+    }
+    const rawNodes = Array.isArray(printer.state?.lights?.nodes)
+      ? printer.state.lights.nodes
+      : [];
+    const seen = new Set();
+    const nodes = [];
+    rawNodes.forEach((item) => {
+      const node = stringOr(item?.node).trim();
+      if (!Object.prototype.hasOwnProperty.call(LIGHT_LABELS, node) || seen.has(node)) return;
+      seen.add(node);
+      nodes.push({ node, mode: stringOr(item?.mode, "unknown").toLowerCase() });
+    });
+    const fragment = document.createDocumentFragment();
+    nodes.forEach(({ node, mode }) => {
+      const button = document.createElement("button");
+      const isOn = mode === "on" || mode === "flashing";
+      button.className = "button control-button light-button";
+      button.type = "button";
+      button.dataset.command = "light";
+      button.dataset.printerId = String(printer.id);
+      button.dataset.lightNode = node;
+      button.dataset.nextState = isOn ? "off" : "on";
+      button.setAttribute("aria-pressed", String(isOn));
+      button.textContent = `${LIGHT_LABELS[node]} ${isOn ? "ausschalten" : "einschalten"}`;
+      const pending = isPending(String(printer.id), "light");
+      button.disabled = !actionable || pending;
+      button.classList.toggle("is-pending", pending);
+      if (!printer.online) button.title = "Drucker ist offline";
+      else if (hasPartialData(printer)) button.title = "Live-Daten sind unvollständig oder veraltet";
+      else if (hasConnectionError(printer)) button.title = "MQTT-Verbindung ist gestört";
+      else if (!printer.writable) button.title = "Schreibzugriff ist deaktiviert";
+      fragment.append(button);
+    });
+    container.replaceChildren(fragment);
+    return nodes.length;
   }
 
   function cameraToggleState(value) {
@@ -1093,12 +1155,15 @@
       button.dataset.printerId = String(printer.id);
       button.dataset.amsId = unitId;
       const pending = isPending(String(printer.id), command);
-      button.disabled = !printer.online || hasPartialData(printer) || hasConnectionError(printer) || !printer.writable || pending;
+      const developerUnavailable = SIGNED_UI_COMMANDS.has(command)
+        && printer.state?.developer_lan_mode !== true;
+      button.disabled = !printer.online || hasPartialData(printer) || hasConnectionError(printer) || !printer.writable || developerUnavailable || pending;
       button.classList.toggle("is-pending", pending);
       if (!printer.online) button.title = "Drucker ist offline";
       else if (hasPartialData(printer)) button.title = "Live-Daten sind unvollständig oder veraltet";
       else if (hasConnectionError(printer)) button.title = "MQTT-Verbindung ist gestört";
       else if (!printer.writable) button.title = "Schreibzugriff ist deaktiviert";
+      else if (developerUnavailable) button.title = "Developer-LAN-Modus ist nicht bestätigt";
     });
 
     const slotGrid = amsCard.querySelector(".slot-grid");
@@ -1336,7 +1401,11 @@
     if (["camera_recording", "camera_timelapse"].includes(command)) return { on: control.dataset.nextState === "true" };
     if (command === "camera_resolution") return { resolution: control.value };
     if (command === "speed") return { level: control.value };
-    if (command === "light") return { on: control.dataset.nextState === "on" };
+    if (command === "light") {
+      const node = stringOr(control.dataset.lightNode).trim();
+      if (!Object.prototype.hasOwnProperty.call(LIGHT_LABELS, node)) return null;
+      return { on: control.dataset.nextState === "on", node };
+    }
     if (command === "refresh_rfid") return { ams_id: control.dataset.amsId };
     return {};
   }
@@ -1421,6 +1490,36 @@
   function readableError(error) {
     if (error instanceof Error && error.message) return error.message;
     return "Unbekannter Verbindungsfehler.";
+  }
+
+  async function logout() {
+    if (!dom.logoutButton || dom.logoutButton.disabled) return;
+    const csrfToken = getCookie("bambu_csrf");
+    if (!csrfToken) {
+      showToast("Sicherheitstoken fehlt. Bitte lade die Seite neu.", "error");
+      return;
+    }
+    dom.logoutButton.disabled = true;
+    try {
+      const response = await authenticatedFetch("/api/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        keepalive: true,
+        headers: {
+          Accept: "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+      });
+      if (!response.ok) throw new Error(await responseError(response));
+      app.stopped = true;
+      app.websocket?.close();
+      window.location.replace("/login");
+    } catch (error) {
+      if (error instanceof SessionExpiredError) return;
+      dom.logoutButton.disabled = false;
+      showToast(`Abmelden fehlgeschlagen: ${readableError(error)}`, "error");
+    }
   }
 
   function findPrinter(printerId) {
@@ -1695,6 +1794,8 @@
     checkHealth();
     connectWebsocket();
   });
+
+  dom.logoutButton?.addEventListener("click", logout);
 
   window.addEventListener("online", () => {
     app.reconnectAttempts = 0;

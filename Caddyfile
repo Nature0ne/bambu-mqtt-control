@@ -3,6 +3,19 @@
 	auto_https disable_redirects
 }
 
+# This listener exists only on the proxy container's loopback interface. It is
+# deliberately not published or exposed by Compose and avoids testing a local
+# TLS certificate with the wrong hostname.
+http://127.0.0.1:2018 {
+	handle /healthz {
+		reverse_proxy bambu-control:9208
+	}
+
+	handle {
+		respond 404
+	}
+}
+
 https://{$BAMBU_SITE_HOST:localhost}:{$BAMBU_HTTPS_PORT:9444} {
 	tls internal
 

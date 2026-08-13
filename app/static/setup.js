@@ -227,6 +227,7 @@
     card.querySelector(".tls-standard").classList.toggle("is-overridden", allowSelfSigned);
     warning.hidden = !allowSelfSigned;
     fingerprintGroup.hidden = !allowSelfSigned;
+    field(card, "tls_fingerprint_sha256").required = allowSelfSigned;
     field(card, "allow_self_signed_tls").setAttribute("aria-expanded", String(allowSelfSigned));
   }
 
@@ -323,6 +324,9 @@
       if (serial) serialCounts.set(serial, (serialCounts.get(serial) || 0) + 1);
 
       const fingerprint = normalizeFingerprint(fingerprintInput.value);
+      if (field(card, "allow_self_signed_tls").checked && !fingerprint) {
+        fingerprintInput.setCustomValidity("Für selbstsigniertes TLS ist der SHA-256-Fingerprint erforderlich.");
+      }
       if (fingerprint && !/^[a-f0-9]{64}$/.test(fingerprint)) {
         fingerprintInput.setCustomValidity("Der SHA-256-Fingerprint muss aus genau 64 Hex-Zeichen bestehen.");
       }
@@ -492,7 +496,9 @@
         camera_enabled: field(card, "camera_enabled").checked,
         allowed_commands: selectedCommands(card),
         allow_self_signed_tls: field(card, "allow_self_signed_tls").checked,
-        tls_fingerprint_sha256: normalizeFingerprint(field(card, "tls_fingerprint_sha256").value) || null,
+        tls_fingerprint_sha256: field(card, "allow_self_signed_tls").checked
+          ? normalizeFingerprint(field(card, "tls_fingerprint_sha256").value) || null
+          : null,
         stale_after_seconds: Number.parseInt(field(card, "stale_after_seconds").value, 10),
         full_refresh_seconds: Number.parseInt(field(card, "full_refresh_seconds").value, 10),
       })),

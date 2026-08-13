@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${BAMBU_COMPOSE_FILES:-}" ] && [ -z "${COMPOSE_FILE:-}" ]; then
+    COMPOSE_FILE=$BAMBU_COMPOSE_FILES
+    export COMPOSE_FILE
+fi
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 BACKUP.tar.gz" >&2
+    exit 64
+fi
+
+archive=$1
+if [ ! -f "$archive" ] || [ -L "$archive" ]; then
+    echo "Restore source must be a regular, non-symlink file: $archive" >&2
+    exit 1
+fi
+
+service_stopped=0
+preserve_stopped=0
+
+restart_on_exit() {
+    status=$?
+    trap - EXIT HUP INT TERM
+    if [ "$service_stopped" -eq 1 ] && [ "$preserve_stopped" -eq 0 ]; then
+        if ! docker compose up -d --no-deps bambu-control; then
+            echo "WARNING: bambu-control could not be restarted." >&2
+            status=1
+        fi
+    fi
+    exit "$status"
+}
+trap restart_on_exit EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+docker compose stop bambu-control
+service_stopped=1
+
+restore_status=0
+docker compose run --rm --no-deps -T bambu-control \
+    python3 -m app.backup restore <"$archive" || restore_status=$?
+
+if [ "$restore_status" -eq 2 ]; then
+    preserve_stopped=1
+    echo "CRITICAL: rollback was incomplete; bambu-control remains stopped." >&2
+    echo "Preserve the hidden .restore-rollback files and inspect the volumes." >&2
+    exit 2
+fi
+
+if ! docker compose up -d --no-deps bambu-control; then
+    echo "Restore finished, but bambu-control could not be restarted." >&2
+    exit 1
+fi
+service_stopped=0
+
+if [ "$restore_status" -ne 0 ]; then
+    echo "Restore was rejected; the previous state remains active." >&2
+    exit 1
+fi
+
+trap - EXIT HUP INT TERM
+echo "Restore completed and bambu-control restarted." >&2
