@@ -2475,6 +2475,7 @@ class MqttClientTests(unittest.TestCase):
             with self.assertRaises(ssl.SSLError):
                 _pinned_tls_context(config)
 
+        self.assertEqual(probe_context.minimum_version, ssl.TLSVersion.TLSv1_2)
         probe_context.wrap_socket.assert_called_once()
 
     def test_config_rejects_mixed_or_incomplete_tls_modes(self):

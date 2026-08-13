@@ -31,6 +31,7 @@ def _pinned_tls_context(config: PrinterConfig) -> ssl.SSLContext:
         raise ssl.SSLError("self-signed TLS requires a certificate fingerprint")
 
     probe = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    probe.minimum_version = ssl.TLSVersion.TLSv1_2
     probe.check_hostname = False
     probe.verify_mode = ssl.CERT_NONE
     with socket.create_connection((config.host, config.port), timeout=5) as connection:
@@ -42,6 +43,7 @@ def _pinned_tls_context(config: PrinterConfig) -> ssl.SSLContext:
         raise ssl.SSLError("printer certificate fingerprint mismatch")
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.check_hostname = False
     context.verify_mode = ssl.CERT_REQUIRED
     context.load_verify_locations(cadata=ssl.DER_cert_to_PEM_cert(certificate))
